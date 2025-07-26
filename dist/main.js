@@ -151,7 +151,6 @@ class InterviewAssistant {
             skipTaskbar: true,
             // Hide from screen capture/sharing
             hiddenInMissionControl: true,
-            visibleOnAllWorkspaces: true,
             fullscreenable: false
         });
         const html = `
@@ -294,7 +293,7 @@ class InterviewAssistant {
             skipTaskbar: true,
             // Hide from screen capture/sharing
             hiddenInMissionControl: true,
-            visibleOnAllWorkspaces: true,
+            // visibleOnAllWorkspaces: true,
             fullscreenable: false
         });
         const html = `
