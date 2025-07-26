@@ -42,6 +42,8 @@ const fs = __importStar(require("fs"));
 const uuid_1 = require("uuid");
 const electron_store_1 = __importDefault(require("electron-store"));
 const openai_1 = __importDefault(require("openai"));
+const OCRService_1 = require("./services/OCRService");
+const CaptureService_1 = require("./services/CaptureService");
 class InterviewAssistant {
     constructor() {
         this.mainWindow = null;
@@ -50,8 +52,11 @@ class InterviewAssistant {
         this.sessions = new Map();
         this.openai = null;
         this.store = new electron_store_1.default();
+        // Initialize OCR service
+        this.ocrService = new OCRService_1.OCRService();
+        // Initialize capture service
+        this.captureService = new CaptureService_1.CaptureService();
         // Initialize logging
-        this.logFilePath = path.join(electron_1.app.getPath('userData'), 'interview-assistant.log');
         this.initializeLogging();
         // Initialize OpenAI if API key exists
         this.initializeOpenAI();
@@ -71,15 +76,25 @@ class InterviewAssistant {
         this.setupIpcHandlers();
     }
     initializeLogging() {
-        // Create log file with timestamp
+        // Create logs directory
+        const logsDir = path.join(electron_1.app.getPath('userData'), 'logs');
+        if (!fs.existsSync(logsDir)) {
+            fs.mkdirSync(logsDir, { recursive: true });
+        }
+        // Create log file with date and timestamp
+        const date = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        this.logFilePath = path.join(electron_1.app.getPath('userData'), `interview-assistant-${timestamp}.log`);
+        this.logFilePath = path.join(logsDir, `interview-assistant-${date}-${timestamp}.log`);
         // Initialize log file
         this.writeLog('🚀 [SYSTEM] Interview Assistant starting...');
-        this.writeLog(`📁 [SYSTEM] Log file: ${this.logFilePath}`);
-        this.writeLog(`💻 [SYSTEM] Platform: ${process.platform}`);
-        this.writeLog(`🔧 [SYSTEM] Node version: ${process.version}`);
+        this.writeLog(`� [SYYSTEM] Log file: ${this.logFilePath}`);
+        this.writeLog(`📁 [SYSTEM] Logs directory: ${logsDir}`);
+        this.writeLog(`� [[SYSTEM] Platform: ${process.platform}`);
+        this.writeLog(`�  [SYSTEM] Node version: ${process.version}`);
         console.log(`📝 [LOGGING] Log file initialized: ${this.logFilePath}`);
+        console.log(`📁 [LOGGING] Logs directory: ${logsDir}`);
+        console.log(`📝 [LOGGING] Log file initialized: ${this.logFilePath}`);
+        console.log(`📁 [LOGGING] Logs directory: ${logsDir}`);
     }
     writeLog(message) {
         const timestamp = new Date().toISOString();
@@ -133,7 +148,11 @@ class InterviewAssistant {
             title: 'Interview Assistant',
             resizable: false,
             alwaysOnTop: true,
-            skipTaskbar: true
+            skipTaskbar: true,
+            // Hide from screen capture/sharing
+            hiddenInMissionControl: true,
+            visibleOnAllWorkspaces: true,
+            fullscreenable: false
         });
         const html = `
       <!DOCTYPE html>
@@ -272,7 +291,11 @@ class InterviewAssistant {
             title: `${config.profession} - ${config.interviewType}`,
             resizable: false,
             alwaysOnTop: true,
-            skipTaskbar: true
+            skipTaskbar: true,
+            // Hide from screen capture/sharing
+            hiddenInMissionControl: true,
+            visibleOnAllWorkspaces: true,
+            fullscreenable: false
         });
         const html = `
       <!DOCTYPE html>
@@ -486,12 +509,26 @@ class InterviewAssistant {
           ipcRenderer.on('ocr-result', (event, data) => {
             console.log('📷 [IPC] Received ocr-result:', data);
             if (data.sessionId === sessionId) {
+              // First show the OCR text that was extracted
+              addMessage('📷 **OCR Text Extracted:** "' + data.text + '"', 'ai');
+              
+              // Show debug information
+              if (data.debugInfo) {
+                const debug = data.debugInfo;
+                const debugMsg = '🔍 **Debug Info:**\\n• Profession: ' + debug.profession + 
+                               '\\n• Interview Type: ' + debug.interviewType + 
+                               '\\n• OpenAI Available: ' + debug.hasOpenAI + 
+                               '\\n• Analysis Length: ' + debug.analysisLength + ' chars';
+                addMessage(debugMsg, 'ai');
+              }
+              
+              // Then show the AI analysis
               if (data.analysis) {
                 console.log('📷 [IPC] Adding OCR analysis to chat');
                 addMessage(data.analysis, 'ai');
               } else {
-                console.log('📷 [IPC] Adding OCR text to chat');
-                addMessage('📷 Screenshot analyzed: ' + data.text, 'ai');
+                console.log('📷 [IPC] No analysis available');
+                addMessage('❌ No analysis could be generated', 'ai');
               }
             }
           });
@@ -577,55 +614,53 @@ class InterviewAssistant {
         });
     }
     async captureScreen() {
-        this.writeLog('📷 [OCR] Starting desktop capture...');
+        this.writeLog('📷 [CAPTURE] Starting full-resolution screen capture...');
         try {
-            const sources = await electron_1.desktopCapturer.getSources({
-                types: ['window', 'screen'],
-                thumbnailSize: { width: 1920, height: 1080 }
-            });
-            if (sources.length === 0) {
-                throw new Error('No screen sources available');
-            }
-            // Get the primary screen or first available source
-            const primarySource = sources.find(source => source.name.includes('Screen')) || sources[0];
-            this.writeLog(`📷 [OCR] Captured source: ${primarySource.name}`);
-            // Convert thumbnail to buffer
-            const image = primarySource.thumbnail;
-            const buffer = image.toPNG();
-            this.writeLog(`📷 [OCR] Screenshot captured successfully, size: ${buffer.length} bytes`);
+            // Use the improved capture service
+            const buffer = await this.captureService.captureScreen();
+            this.writeLog(`📷 [CAPTURE] Screenshot captured successfully, size: ${buffer.length} bytes`);
             return buffer;
         }
         catch (error) {
-            this.writeLog(`❌ [OCR] Screen capture failed: ${error.message}`);
+            this.writeLog(`❌ [CAPTURE] Screen capture failed: ${error.message}`);
             throw error;
         }
     }
     async extractTextFromImage(imageBuffer) {
-        this.writeLog('📷 [OCR] Starting text extraction...');
+        this.writeLog('📷 [OCR] Starting real text extraction...');
         try {
-            // For now, simulate OCR processing with realistic delay
-            // In a real implementation, you would use Tesseract.js or similar
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            // Simulate realistic OCR results based on common interview scenarios
-            const ocrResults = [
-                'Implement a function to find the longest palindromic substring in a given string.',
-                'Design a system that can handle 1 million requests per second with 99.9% availability.',
-                'Write a function to reverse a linked list iteratively and recursively.',
-                'Explain the difference between SQL and NoSQL databases with examples.',
-                'Implement a binary search tree with insert, delete, and search operations.',
-                'Design a URL shortener service like bit.ly with analytics.',
-                'Write a function to detect if a binary tree is balanced.',
-                'Explain how you would implement a cache with LRU eviction policy.',
-                'Implement merge sort algorithm and analyze its time complexity.',
-                'Design a chat application that supports real-time messaging.'
-            ];
-            const randomResult = ocrResults[Math.floor(Math.random() * ocrResults.length)];
-            this.writeLog(`📷 [OCR] Text extraction completed: "${randomResult}"`);
-            return randomResult;
+            // Validate image buffer
+            if (!imageBuffer || imageBuffer.length === 0) {
+                throw new Error('Empty or invalid image buffer provided');
+            }
+            this.writeLog(`📷 [OCR] Image buffer size: ${imageBuffer.length} bytes`);
+            // Initialize OCR service if not already done
+            if (!this.ocrService.isReady()) {
+                this.writeLog('🔧 [OCR] Initializing OCR service...');
+                await this.ocrService.initialize();
+            }
+            // Use real OCR to extract text from the image
+            const ocrResult = await this.ocrService.extractText(imageBuffer);
+            this.writeLog(`📷 [OCR] Real text extraction completed: "${ocrResult}"`);
+            // Return the extracted text for further processing
+            if (!ocrResult || ocrResult.trim().length === 0) {
+                return 'No text detected in the screenshot. Please ensure there is readable text visible and try again.';
+            }
+            return ocrResult;
         }
         catch (error) {
-            this.writeLog(`❌ [OCR] Text extraction failed: ${error.message}`);
-            throw error;
+            this.writeLog(`❌ [OCR] Real text extraction failed: ${error.message}`);
+            // Provide more specific error messages
+            const errorMessage = error.message;
+            if (errorMessage.includes('Empty or invalid image buffer')) {
+                return 'Screenshot capture failed - no image data received. Please try taking another screenshot.';
+            }
+            else if (errorMessage.includes('Error attempting to read image')) {
+                return 'Image format error - unable to process the screenshot. Please try again.';
+            }
+            else {
+                return `OCR processing failed: ${errorMessage}. Please try taking another screenshot.`;
+            }
         }
     }
     async generateOpenAIScreenshotAnalysis(ocrText, profession, interviewType) {
@@ -643,23 +678,29 @@ QUESTION: "${ocrText}"
 Provide a detailed response that includes:
 1. Problem analysis and approach
 2. Step-by-step solution strategy
-3. Code implementation (if applicable)
+3. Code implementation (if applicable) - ALWAYS include working code examples
 4. Time and space complexity analysis
 5. Edge cases to consider
 6. Interview tips and best practices
 
-Format your response with clear sections and use markdown for better readability. Be specific and actionable.`;
+Format your response with clear sections and use markdown for better readability. Be specific and actionable. ALWAYS include actual code implementations.`;
+            const userPrompt = `Please analyze this ${interviewType} interview question for a ${profession}: ${ocrText}`;
+            // Log the exact prompts being sent
+            this.writeLog(`🤖 [AI] System Prompt: ${systemPrompt}`);
+            this.writeLog(`🤖 [AI] User Prompt: ${userPrompt}`);
+            this.writeLog(`🤖 [AI] OCR Text: "${ocrText}"`);
             const completion = await this.openai.chat.completions.create({
                 model: 'gpt-3.5-turbo',
                 messages: [
                     { role: 'system', content: systemPrompt },
-                    { role: 'user', content: `Please analyze this ${interviewType} interview question for a ${profession}: ${ocrText}` }
+                    { role: 'user', content: userPrompt }
                 ],
-                max_tokens: 800,
+                max_tokens: 1200,
                 temperature: 0.7
             });
             const analysis = completion.choices[0].message.content || 'Unable to generate analysis';
             this.writeLog(`🤖 [AI] OpenAI analysis generated successfully (${analysis.length} characters)`);
+            this.writeLog(`🤖 [AI] Analysis content: ${analysis.substring(0, 200)}...`);
             return analysis;
         }
         catch (error) {
@@ -1166,11 +1207,18 @@ Keep responses focused, actionable, and encouraging. Use markdown formatting for
                     aiAnalysis = this.generateFallbackAnalysis(ocrText, session?.profession || 'software-engineer', session?.interviewType || 'technical');
                 }
                 this.writeLog(`📷 [IPC] Sending OCR result for session ${sessionId}`);
-                // Send both OCR text and AI analysis
+                // Send OCR text, prompt, and AI analysis for debugging
                 event.reply('ocr-result', {
                     sessionId,
                     text: ocrText,
                     analysis: aiAnalysis,
+                    debugInfo: {
+                        ocrText: ocrText,
+                        profession: session?.profession || 'unknown',
+                        interviewType: session?.interviewType || 'unknown',
+                        hasOpenAI: !!this.openai,
+                        analysisLength: aiAnalysis.length
+                    },
                     timestamp: new Date().toISOString()
                 });
             }

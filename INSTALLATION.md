@@ -71,7 +71,7 @@ sudo apt-get install -f
 Interview Assistant requires several permissions to function properly. You'll be prompted for these during first launch:
 
 #### 1. Screen Recording Permission
-**Why needed**: For OCR functionality to capture and analyze interview questions
+**Why needed**: For enhanced OCR functionality to capture and analyze interview questions across multiple displays using Electron's desktopCapturer API
 
 **How to grant**:
 1. Go to **System Preferences** → **Security & Privacy** → **Privacy**
@@ -79,6 +79,11 @@ Interview Assistant requires several permissions to function properly. You'll be
 3. Click the lock icon and enter your password
 4. Check the box next to **Interview Assistant**
 5. Restart the application
+
+**Enhanced Features**: With this permission, Interview Assistant can:
+- Capture from multiple monitors simultaneously
+- Detect and select optimal screen sources
+- Provide high-quality screenshots for better OCR accuracy
 
 #### 2. Microphone Access
 **Why needed**: For audio transcription during interviews

@@ -5,7 +5,7 @@
   "description": "AI-powered stealth interview assistance application",
   "main": "dist/main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "npm run build && electron .",
     "dev": "npm run build && electron . --dev",
     "build": "tsc",
     "build:watch": "tsc --watch",
@@ -49,6 +49,8 @@
   "dependencies": {
     "electron-store": "^8.1.0",
     "openai": "^4.0.0",
+    "screenshot-desktop": "^1.15.1",
+    "tesseract.js": "^6.0.1",
     "uuid": "^9.0.0"
   },
   "engines": {

@@ -156,10 +156,19 @@ pactl load-module module-loopback source=interview_sink.monitor sink=@DEFAULT_SI
 ```bash
 # Check screen recording permission
 sudo tccutil reset ScreenCapture com.interviewassistant.app
+
+# Verify multiple display detection
+system_profiler SPDisplaysDataType
 ```
 
 **Windows Solution**:
 - Right-click app → Properties → Compatibility → "Override high DPI scaling behavior"
+- Check multiple monitor configuration in Display Settings
+
+**Multi-Display Issues**:
+- Ensure all displays are properly detected by the system
+- Try capturing from different screen sources in Settings → OCR → Screen Source
+- Verify display scaling settings are consistent across monitors
 
 #### OCR accuracy problems
 **Solution**:

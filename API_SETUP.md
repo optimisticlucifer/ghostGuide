@@ -49,8 +49,9 @@ This guide walks you through setting up API keys for Interview Assistant's AI fe
    - Click **Start Session**
 2. **Test AI features**:
    - Type a message in the chat
-   - Try the screenshot OCR feature
-   - Verify you get AI responses
+   - Try the enhanced screenshot OCR feature (now with multi-display support)
+   - Test screen capture across multiple monitors if available
+   - Verify you get AI responses with contextual analysis
 
 ## Alternative AI Providers
 

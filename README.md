@@ -16,10 +16,12 @@ Interview Assistant is an Electron-based desktop application that provides discr
 ### Core Capabilities
 - **Stealth Mode**: Frameless windows with dock icon removal for invisibility
 - **Global Hotkeys**: Quick access via 'g' (main window) and 'h' (session window)
-- **OCR Integration**: Screenshot capture with Tesseract.js text extraction
+- **Enhanced OCR Integration**: Advanced screenshot capture with Electron's desktopCapturer API and Tesseract.js text extraction
+- **Multi-Screen Support**: Screen detection and capture across multiple displays using Electron's screen API
 - **Audio Recording**: Multi-source audio capture (internal + microphone) with real-time Whisper transcription
 - **AI Chat**: OpenAI GPT-3.5-turbo integration with context-aware prompting
 - **Session Management**: Isolated sessions with encrypted data persistence
+- **File System Operations**: Enhanced file handling and logging capabilities
 - **Prompt Library**: Customizable prompts per profession and interview type
 - **RAG System**: Document ingestion and retrieval for personalized assistance
 
@@ -36,6 +38,7 @@ Interview Assistant is an Electron-based desktop application that provides discr
 - **OpenAI Integration**: Full OpenAI API client with secure API key management
 - **Settings Window**: Complete configuration interface for API keys and preferences
 - **Enhanced Error Handling**: Comprehensive logging and user feedback systems
+- **Bug Fixes**: Resolved emoji character encoding issues in log messages and improved markdown formatting consistency
 - TypeScript implementation with comprehensive console logging
 
 ✅ **Available Versions:**
@@ -299,15 +302,17 @@ For detailed technical documentation, see [docs/UpdateService.md](docs/UpdateSer
 
 ### OCR Integration with AI Analysis
 
-The OCRService provides screenshot capture, text extraction, and intelligent AI analysis capabilities:
+The OCRService provides real-time text extraction from images with intelligent AI analysis capabilities:
 
 #### Core Features
-- **Screenshot Capture**: Captures active window or selected screen area automatically
-- **Text Extraction**: Uses Tesseract.js for accurate OCR processing
-- **AI-Powered Analysis**: Context-aware analysis based on profession and interview type
-- **Image Preprocessing**: Optimizes images for better OCR accuracy
-- **Performance Optimization**: Meets 2-second latency requirement
-- **Error Handling**: Comprehensive error handling with retry logic
+- **Real OCR Processing**: Uses Tesseract.js for accurate text extraction from image buffers
+- **Enhanced Result Data**: Provides comprehensive OCR results including confidence scores, processing time, and image metadata
+- **Configurable OCR Settings**: Supports customizable language, engine mode, page segmentation, and character filtering
+- **Performance Monitoring**: Detailed logging of processing time, confidence scores, and extraction statistics
+- **Text Cleaning**: Automatic cleanup of OCR artifacts and formatting issues
+- **Dynamic Configuration**: Runtime configuration updates without service restart
+- **Memory Efficient**: Proper worker lifecycle management with cleanup capabilities
+- **Error Handling**: Comprehensive error handling with detailed logging and user-friendly messages
 
 #### Enhanced Screenshot Analysis
 The system now provides intelligent analysis of screenshot content:
@@ -325,20 +330,21 @@ The system now provides intelligent analysis of screenshot content:
 - **Profession-Specific Guidance**: Tailored advice based on selected profession and interview type
 
 #### API Methods
-- `captureActiveWindow()` - Capture screenshot of active window
-- `extractText(imagePath)` - Extract text from image using OCR
-- `processScreenshot(sessionId)` - Complete screenshot to text pipeline with AI analysis
-- `generateScreenshotAnalysis(text, profession, interviewType)` - Generate contextual AI analysis
-- `getOCRStatus()` - Check OCR service availability
-- `optimizeImage(imagePath)` - Preprocess image for better OCR
+- `initialize()` - Initialize Tesseract.js worker with configured settings
+- `extractText(imageBuffer)` - Extract text from image buffer with enhanced result data
+- `cleanup()` - Terminate worker and clean up resources
+- `isReady()` - Check if OCR service is initialized and ready
+- `getConfig()` - Get current OCR configuration settings
+- `updateConfig(newConfig)` - Update OCR configuration at runtime
 
 #### Usage Workflow
 1. Click "Screenshot" button in session window
-2. System captures active window automatically
-3. OCR processes image and extracts text
-4. AI generates profession-specific analysis of the content
-5. Both OCR text and AI analysis appear in chat interface
-6. Analysis includes step-by-step guidance and interview tips
+2. System captures screenshot and passes image buffer to OCR service
+3. OCR service extracts text using Tesseract.js with configurable settings
+4. Enhanced result data includes confidence scores, processing time, and metadata
+5. Text is automatically cleaned and formatted for better readability
+6. AI generates profession-specific analysis of the extracted content
+7. Both OCR results and AI analysis appear in chat interface with detailed metrics
 
 #### Performance Targets
 - **OCR Processing**: < 2 seconds from capture to text extraction
