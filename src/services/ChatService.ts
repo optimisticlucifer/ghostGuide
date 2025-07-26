@@ -1,0 +1,364 @@
+import { ChatMessage, ActionType, AudioSource } from '../types';
+import { ConfigurationManager } from './ConfigurationManager';
+import { PromptLibraryService } from './PromptLibraryService';
+import { SessionManager } from './SessionManager';
+import { RAGService } from './RAGService';
+
+interface OpenAIMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+interface OpenAIResponse {
+  choices: Array<{
+    message: {
+      content: string;
+      role: string;
+    };
+  }>;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+}
+
+export class ChatService {
+  private configurationManager: ConfigurationManager;
+  private promptLibraryService: PromptLibraryService;
+  private sessionManager: SessionManager;
+  private ragService: RAGService;
+  private maxTokens = 4000;
+  private maxHistoryMessages = 20;
+
+  constructor(
+    configurationManager: ConfigurationManager,
+    promptLibraryService: PromptLibraryService,
+    sessionManager: SessionManager,
+    ragService: RAGService
+  ) {
+    this.configurationManager = configurationManager;
+    this.promptLibraryService = promptLibraryService;
+    this.sessionManager = sessionManager;
+    this.ragService = ragService;
+  }
+
+  /**
+   * Send a regular chat message and get AI response
+   */
+  async sendMessage(sessionId: string, message: string): Promise<string> {
+    try {
+      const session = this.sessionManager.getSession(sessionId);
+      if (!session) {
+        throw new Error('Session not found');
+      }
+
+      // Get system prompt for this session
+      const systemPrompt = this.promptLibraryService.getSystemPrompt(
+        session.profession,
+        session.interviewType
+      );
+
+      // Build conversation history
+      const messages = this.buildConversationHistory(sessionId, systemPrompt);
+      
+      // Search for relevant context from RAG
+      const ragContext = await this.ragService.searchRelevantContent(message, sessionId);
+      
+      // Enhance message with RAG context if available
+      let enhancedMessage = message;
+      if (ragContext.length > 0) {
+        enhancedMessage = `${message}\n\nRelevant context from your materials:\n${ragContext.join('\n\n')}`;
+      }
+      
+      // Add current user message
+      messages.push({
+        role: 'user',
+        content: enhancedMessage
+      });
+
+      // Get AI response
+      const response = await this.callOpenAI(messages);
+
+      // Save both user message and AI response to session
+      const timestamp = new Date();
+      
+      await this.sessionManager.addChatMessage(sessionId, {
+        id: `user-${Date.now()}`,
+        sessionId,
+        role: 'user',
+        content: message,
+        timestamp,
+        metadata: {
+          action: ActionType.GENERAL
+        }
+      });
+
+      await this.sessionManager.addChatMessage(sessionId, {
+        id: `assistant-${Date.now()}`,
+        sessionId,
+        role: 'assistant',
+        content: response,
+        timestamp,
+        metadata: {
+          action: ActionType.GENERAL
+        }
+      });
+
+      return response;
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      throw new Error(`Chat service error: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Process OCR text and get AI analysis
+   */
+  async processOCRText(sessionId: string, text: string, action: ActionType): Promise<string> {
+    try {
+      const session = this.sessionManager.getSession(sessionId);
+      if (!session) {
+        throw new Error('Session not found');
+      }
+
+      // Get action-specific prompt
+      const actionPrompt = this.promptLibraryService.getActionPrompt(
+        action,
+        session.profession,
+        session.interviewType
+      );
+
+      // Get system prompt
+      const systemPrompt = this.promptLibraryService.getSystemPrompt(
+        session.profession,
+        session.interviewType
+      );
+
+      // Build conversation history
+      const messages = this.buildConversationHistory(sessionId, systemPrompt);
+
+      // Add OCR analysis request
+      const analysisRequest = `${actionPrompt}\n\nExtracted text:\n${text}`;
+      messages.push({
+        role: 'user',
+        content: analysisRequest
+      });
+
+      // Get AI response
+      const response = await this.callOpenAI(messages);
+
+      return response;
+    } catch (error) {
+      console.error('Failed to process OCR text:', error);
+      throw new Error(`OCR processing error: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Process audio transcript and get AI coaching
+   */
+  async processTranscript(sessionId: string, transcript: string, source: AudioSource): Promise<string> {
+    try {
+      const session = this.sessionManager.getSession(sessionId);
+      if (!session) {
+        throw new Error('Session not found');
+      }
+
+      // Get system prompt
+      const systemPrompt = this.promptLibraryService.getSystemPrompt(
+        session.profession,
+        session.interviewType
+      );
+
+      // Build conversation history
+      const messages = this.buildConversationHistory(sessionId, systemPrompt);
+
+      // Create coaching request based on source
+      let coachingRequest: string;
+      if (source === AudioSource.INTERVIEWER) {
+        coachingRequest = `The interviewer just said: "${transcript}"\n\nPlease help me understand this question and suggest how to respond effectively.`;
+      } else if (source === AudioSource.INTERVIEWEE) {
+        coachingRequest = `I just said: "${transcript}"\n\nPlease provide feedback on my response and suggest improvements.`;
+      } else {
+        coachingRequest = `Here's what was said in the interview: "${transcript}"\n\nPlease provide relevant guidance and suggestions.`;
+      }
+
+      messages.push({
+        role: 'user',
+        content: coachingRequest
+      });
+
+      // Get AI response
+      const response = await this.callOpenAI(messages);
+
+      return response;
+    } catch (error) {
+      console.error('Failed to process transcript:', error);
+      throw new Error(`Transcript processing error: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Get conversation history for a session
+   */
+  getConversationHistory(sessionId: string): ChatMessage[] {
+    return this.sessionManager.getChatHistory(sessionId);
+  }
+
+  /**
+   * Build conversation history for OpenAI API
+   */
+  private buildConversationHistory(sessionId: string, systemPrompt: string): OpenAIMessage[] {
+    const messages: OpenAIMessage[] = [];
+
+    // Add system prompt
+    messages.push({
+      role: 'system',
+      content: systemPrompt
+    });
+
+    // Get recent chat history
+    const chatHistory = this.sessionManager.getChatHistory(sessionId);
+    
+    // Take only the most recent messages to stay within token limits
+    const recentHistory = chatHistory.slice(-this.maxHistoryMessages);
+
+    // Convert to OpenAI format
+    for (const msg of recentHistory) {
+      // Skip system messages and metadata-only messages
+      if (msg.role === 'user' || msg.role === 'assistant') {
+        messages.push({
+          role: msg.role,
+          content: msg.content
+        });
+      }
+    }
+
+    return messages;
+  }
+
+  /**
+   * Call OpenAI API
+   */
+  private async callOpenAI(messages: OpenAIMessage[]): Promise<string> {
+    const apiKey = this.configurationManager.getApiKey();
+    if (!apiKey) {
+      throw new Error('OpenAI API key not configured. Please add your API key in settings.');
+    }
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-3.5-turbo',
+          messages: messages,
+          max_tokens: this.maxTokens,
+          temperature: 0.7,
+          top_p: 1,
+          frequency_penalty: 0,
+          presence_penalty: 0
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`OpenAI API error: ${response.status} - ${errorData.error?.message || response.statusText}`);
+      }
+
+      const data: OpenAIResponse = await response.json();
+      
+      if (!data.choices || data.choices.length === 0) {
+        throw new Error('No response from OpenAI API');
+      }
+
+      const content = data.choices[0].message.content;
+      if (!content) {
+        throw new Error('Empty response from OpenAI API');
+      }
+
+      // Log token usage for monitoring
+      if (data.usage) {
+        console.log(`OpenAI API usage: ${data.usage.total_tokens} tokens (${data.usage.prompt_tokens} prompt + ${data.usage.completion_tokens} completion)`);
+      }
+
+      return content.trim();
+    } catch (error) {
+      console.error('OpenAI API call failed:', error);
+      
+      // Provide user-friendly error messages
+      if ((error as Error).message.includes('401')) {
+        throw new Error('Invalid API key. Please check your OpenAI API key in settings.');
+      } else if ((error as Error).message.includes('429')) {
+        throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+      } else if ((error as Error).message.includes('quota')) {
+        throw new Error('API quota exceeded. Please check your OpenAI account billing.');
+      } else if ((error as Error).message.includes('network') || (error as Error).message.includes('fetch')) {
+        throw new Error('Network error. Please check your internet connection.');
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Estimate token count for messages (rough approximation)
+   */
+  private estimateTokenCount(messages: OpenAIMessage[]): number {
+    let totalTokens = 0;
+    
+    for (const message of messages) {
+      // Rough approximation: 1 token ≈ 4 characters
+      totalTokens += Math.ceil(message.content.length / 4);
+      // Add overhead for message structure
+      totalTokens += 10;
+    }
+    
+    return totalTokens;
+  }
+
+  /**
+   * Trim conversation history to fit within token limits
+   */
+  private trimConversationHistory(messages: OpenAIMessage[]): OpenAIMessage[] {
+    const estimatedTokens = this.estimateTokenCount(messages);
+    
+    if (estimatedTokens <= this.maxTokens * 0.8) { // Leave 20% buffer for response
+      return messages;
+    }
+
+    // Keep system message and trim from the middle
+    const systemMessage = messages[0];
+    const conversationMessages = messages.slice(1);
+    
+    // Remove older messages until we're under the limit
+    while (conversationMessages.length > 2 && 
+           this.estimateTokenCount([systemMessage, ...conversationMessages]) > this.maxTokens * 0.8) {
+      conversationMessages.shift(); // Remove oldest message
+    }
+    
+    return [systemMessage, ...conversationMessages];
+  }
+
+  /**
+   * Check if API key is configured
+   */
+  isConfigured(): boolean {
+    return this.configurationManager.isApiKeyConfigured();
+  }
+
+  /**
+   * Get service status
+   */
+  getStatus(): { configured: boolean; model: string; maxTokens: number } {
+    return {
+      configured: this.isConfigured(),
+      model: 'gpt-3.5-turbo',
+      maxTokens: this.maxTokens
+    };
+  }
+}

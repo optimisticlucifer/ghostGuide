@@ -1,0 +1,742 @@
+import { spawn, ChildProcess } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { AudioSource } from '../types';
+
+interface AudioRecording {
+  sessionId: string;
+  source: AudioSource;
+  process: ChildProcess | null;
+  outputFile: string;
+  isActive: boolean;
+  startTime: Date;
+  segments: AudioSegment[];
+  recentTranscriptions?: Array<{transcription: string; timestamp: Date; segmentId: string}>;
+}
+
+interface AudioSegment {
+  id: string;
+  filePath: string;
+  startTime: Date;
+  duration: number;
+  transcription?: string;
+}
+
+export class AudioService {
+  private recordings: Map<string, AudioRecording> = new Map();
+  private tempDir: string;
+  private segmentDuration = 5000; // 5 seconds in milliseconds
+  private isInitialized = false;
+
+  constructor() {
+    this.tempDir = path.join(os.tmpdir(), 'interview-assistant-audio');
+    this.ensureTempDirectory();
+  }
+
+  private ensureTempDirectory(): void {
+    if (!fs.existsSync(this.tempDir)) {
+      fs.mkdirSync(this.tempDir, { recursive: true });
+    }
+  }
+
+  /**
+   * Initialize audio service and check dependencies
+   */
+  async initialize(): Promise<void> {
+    try {
+      await this.checkDependencies();
+      await this.checkAudioDevices();
+      this.isInitialized = true;
+      console.log('Audio Service initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize Audio Service:', error);
+      throw new Error('Audio Service initialization failed');
+    }
+  }
+
+  /**
+   * Check if required dependencies are available
+   */
+  private async checkDependencies(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // Check if FFmpeg is available
+      const ffmpeg = spawn('ffmpeg', ['-version']);
+      
+      ffmpeg.on('close', (code) => {
+        if (code === 0) {
+          console.log('FFmpeg is available');
+          resolve();
+        } else {
+          reject(new Error('FFmpeg is not installed or not in PATH'));
+        }
+      });
+      
+      ffmpeg.on('error', (error) => {
+        reject(new Error(`FFmpeg check failed: ${error.message}`));
+      });
+    });
+  }
+
+  /**
+   * Check available audio devices
+   */
+  private async checkAudioDevices(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // List audio devices using FFmpeg
+      const ffmpeg = spawn('ffmpeg', ['-f', 'avfoundation', '-list_devices', 'true', '-i', '']);
+      
+      let output = '';
+      ffmpeg.stderr.on('data', (data) => {
+        output += data.toString();
+      });
+      
+      ffmpeg.on('close', () => {
+        console.log('Available audio devices:', output);
+        
+        // Check if Blackhole is available for internal audio capture
+        if (output.includes('BlackHole')) {
+          console.log('BlackHole audio driver detected');
+        } else {
+          console.warn('BlackHole audio driver not detected. Internal audio capture may not work.');
+        }
+        
+        resolve();
+      });
+      
+      ffmpeg.on('error', (error) => {
+        console.warn('Could not list audio devices:', error.message);
+        resolve(); // Don't fail initialization for this
+      });
+    });
+  }
+
+  /**
+   * Start recording audio from specified source
+   */
+  async startRecording(source: AudioSource, sessionId: string): Promise<void> {
+    if (!this.isInitialized) {
+      throw new Error('Audio service not initialized');
+    }
+
+    // Stop existing recording for this session if any
+    if (this.recordings.has(sessionId)) {
+      await this.stopRecording(sessionId);
+    }
+
+    try {
+      const outputFile = path.join(this.tempDir, `${sessionId}-${Date.now()}.wav`);
+      const recording: AudioRecording = {
+        sessionId,
+        source,
+        process: null,
+        outputFile,
+        isActive: false,
+        startTime: new Date(),
+        segments: []
+      };
+
+      // Configure FFmpeg command based on source
+      const ffmpegArgs = this.buildFFmpegArgs(source, outputFile);
+      
+      console.log(`Starting audio recording for session ${sessionId} from ${source}`);
+      console.log('FFmpeg command:', 'ffmpeg', ffmpegArgs.join(' '));
+      
+      const ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
+      recording.process = ffmpegProcess;
+      recording.isActive = true;
+      
+      // Handle process events with enhanced error handling
+      ffmpegProcess.stdout.on('data', (data) => {
+        // FFmpeg outputs to stderr, not stdout
+      });
+      
+      ffmpegProcess.stderr.on('data', (data) => {
+        const output = data.toString();
+        if (output.includes('size=') || output.includes('time=')) {
+          // This is normal FFmpeg progress output
+        } else if (output.includes('error') || output.includes('Error')) {
+          console.error('FFmpeg error:', output);
+          
+          // Handle specific error types
+          if (output.includes('Device or resource busy')) {
+            console.error('Audio device is busy, attempting recovery...');
+            this.handleDeviceBusyError(sessionId);
+          } else if (output.includes('No such device')) {
+            console.error('Audio device not found, checking available devices...');
+            this.handleDeviceNotFoundError(sessionId);
+          }
+        }
+      });
+      
+      ffmpegProcess.on('close', (code) => {
+        console.log(`Recording process closed with code ${code}`);
+        recording.isActive = false;
+        
+        // Handle unexpected closures
+        if (code !== 0 && recording.isActive) {
+          console.warn(`Recording process exited unexpectedly with code ${code}`);
+          this.handleUnexpectedExit(sessionId, code);
+        }
+      });
+      
+      ffmpegProcess.on('error', (error) => {
+        console.error('Recording process error:', error);
+        recording.isActive = false;
+        
+        // Attempt recovery based on error type
+        this.handleProcessError(sessionId, error);
+      });
+
+      this.recordings.set(sessionId, recording);
+      
+      // Start segment processing
+      this.startSegmentProcessing(sessionId);
+      
+      console.log(`Audio recording started for session: ${sessionId}`);
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+      throw new Error(`Failed to start audio recording: ${error.message}`);
+    }
+  }
+
+  /**
+   * Stop recording for a session
+   */
+  async stopRecording(sessionId: string): Promise<void> {
+    const recording = this.recordings.get(sessionId);
+    if (!recording) {
+      console.warn(`No active recording found for session: ${sessionId}`);
+      return;
+    }
+
+    try {
+      if (recording.process && recording.isActive) {
+        // Send SIGTERM to gracefully stop FFmpeg
+        recording.process.kill('SIGTERM');
+        
+        // Wait a bit for graceful shutdown
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Force kill if still running
+        if (!recording.process.killed) {
+          recording.process.kill('SIGKILL');
+        }
+      }
+      
+      recording.isActive = false;
+      console.log(`Audio recording stopped for session: ${sessionId}`);
+    } catch (error) {
+      console.error('Error stopping recording:', error);
+    } finally {
+      this.recordings.delete(sessionId);
+    }
+  }
+
+  /**
+   * Build FFmpeg arguments based on audio source
+   */
+  private buildFFmpegArgs(source: AudioSource, outputFile: string): string[] {
+    const baseArgs = ['-y']; // Overwrite output file
+    
+    switch (source) {
+      case AudioSource.INTERVIEWER:
+        // Internal audio capture via BlackHole
+        return [
+          ...baseArgs,
+          '-f', 'avfoundation',
+          '-i', ':BlackHole 2ch', // Audio input from BlackHole
+          '-ac', '1', // Mono
+          '-ar', '16000', // 16kHz sample rate
+          '-acodec', 'pcm_s16le',
+          outputFile
+        ];
+        
+      case AudioSource.INTERVIEWEE:
+        // Microphone audio capture
+        return [
+          ...baseArgs,
+          '-f', 'avfoundation',
+          '-i', ':0', // Default microphone
+          '-ac', '1', // Mono
+          '-ar', '16000', // 16kHz sample rate
+          '-acodec', 'pcm_s16le',
+          outputFile
+        ];
+        
+      case AudioSource.BOTH:
+        // Both internal and microphone audio
+        return [
+          ...baseArgs,
+          '-f', 'avfoundation',
+          '-i', ':BlackHole 2ch',
+          '-f', 'avfoundation',
+          '-i', ':0',
+          '-filter_complex', '[0:a][1:a]amix=inputs=2[out]',
+          '-map', '[out]',
+          '-ac', '1', // Mono
+          '-ar', '16000', // 16kHz sample rate
+          '-acodec', 'pcm_s16le',
+          outputFile
+        ];
+        
+      default:
+        throw new Error(`Unsupported audio source: ${source}`);
+    }
+  }
+
+  /**
+   * Start processing audio segments for transcription
+   */
+  private startSegmentProcessing(sessionId: string): void {
+    const recording = this.recordings.get(sessionId);
+    if (!recording) return;
+
+    const processSegments = () => {
+      if (!recording.isActive) return;
+      
+      // Create a new segment
+      const segmentId = `${sessionId}-${Date.now()}`;
+      const segmentFile = path.join(this.tempDir, `segment-${segmentId}.wav`);
+      
+      // Extract last 5 seconds of audio for processing
+      this.extractAudioSegment(recording.outputFile, segmentFile, this.segmentDuration)
+        .then(() => {
+          const segment: AudioSegment = {
+            id: segmentId,
+            filePath: segmentFile,
+            startTime: new Date(),
+            duration: this.segmentDuration
+          };
+          
+          recording.segments.push(segment);
+          
+          // Process segment for transcription (placeholder for now)
+          this.processAudioSegment(segment, sessionId);
+        })
+        .catch(error => {
+          console.error('Failed to extract audio segment:', error);
+        });
+      
+      // Schedule next segment processing
+      if (recording.isActive) {
+        setTimeout(processSegments, this.segmentDuration);
+      }
+    };
+
+    // Start segment processing after initial delay
+    setTimeout(processSegments, this.segmentDuration);
+  }
+
+  /**
+   * Extract audio segment from main recording
+   */
+  private async extractAudioSegment(inputFile: string, outputFile: string, duration: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const durationSeconds = duration / 1000;
+      const ffmpegArgs = [
+        '-y',
+        '-i', inputFile,
+        '-ss', `-${durationSeconds}`, // Last N seconds
+        '-t', durationSeconds.toString(),
+        '-acodec', 'copy',
+        outputFile
+      ];
+      
+      const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+      
+      ffmpeg.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`FFmpeg segment extraction failed with code ${code}`));
+        }
+      });
+      
+      ffmpeg.on('error', (error) => {
+        reject(error);
+      });
+    });
+  }
+
+  /**
+   * Process audio segment with Whisper transcription
+   */
+  private async processAudioSegment(segment: AudioSegment, sessionId: string): Promise<void> {
+    try {
+      console.log(`Processing audio segment ${segment.id} for session ${sessionId}`);
+      
+      // Check if segment file exists and has content
+      if (!fs.existsSync(segment.filePath)) {
+        console.warn(`Segment file not found: ${segment.filePath}`);
+        return;
+      }
+      
+      const stats = fs.statSync(segment.filePath);
+      if (stats.size < 1000) { // Less than 1KB, likely empty or too short
+        console.log(`Segment too short, skipping transcription: ${segment.filePath}`);
+        return;
+      }
+      
+      // Transcribe audio segment using Whisper
+      const transcription = await this.transcribeAudioSegment(segment.filePath);
+      
+      if (transcription && transcription.trim().length > 0) {
+        segment.transcription = transcription;
+        
+        // Emit transcription event to main process for UI update
+        this.emitTranscriptionEvent(sessionId, transcription, segment);
+        
+        console.log(`Transcription completed for segment ${segment.id}: ${transcription.substring(0, 50)}...`);
+      } else {
+        console.log(`No transcription result for segment ${segment.id}`);
+      }
+      
+      // Clean up segment file after processing
+      setTimeout(() => {
+        if (fs.existsSync(segment.filePath)) {
+          fs.unlinkSync(segment.filePath);
+        }
+      }, 60000); // Keep for 1 minute
+      
+    } catch (error) {
+      console.error('Failed to process audio segment:', error);
+    }
+  }
+
+  /**
+   * Transcribe audio segment using Whisper
+   */
+  private async transcribeAudioSegment(audioFilePath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      try {
+        // Use whisper command line tool for transcription
+        const whisperArgs = [
+          audioFilePath,
+          '--model', 'base',
+          '--output_format', 'txt',
+          '--output_dir', this.tempDir,
+          '--language', 'en',
+          '--task', 'transcribe'
+        ];
+        
+        console.log('Running Whisper transcription:', 'whisper', whisperArgs.join(' '));
+        
+        const whisperProcess = spawn('whisper', whisperArgs);
+        
+        let output = '';
+        let errorOutput = '';
+        
+        whisperProcess.stdout.on('data', (data) => {
+          output += data.toString();
+        });
+        
+        whisperProcess.stderr.on('data', (data) => {
+          errorOutput += data.toString();
+        });
+        
+        whisperProcess.on('close', (code) => {
+          if (code === 0) {
+            // Read transcription result from output file
+            const baseName = path.basename(audioFilePath, path.extname(audioFilePath));
+            const transcriptionFile = path.join(this.tempDir, `${baseName}.txt`);
+            
+            if (fs.existsSync(transcriptionFile)) {
+              const transcription = fs.readFileSync(transcriptionFile, 'utf8').trim();
+              
+              // Clean up transcription file
+              fs.unlinkSync(transcriptionFile);
+              
+              resolve(transcription);
+            } else {
+              console.warn('Transcription file not found:', transcriptionFile);
+              resolve('');
+            }
+          } else {
+            console.error('Whisper transcription failed:', errorOutput);
+            resolve(''); // Don't reject, just return empty string
+          }
+        });
+        
+        whisperProcess.on('error', (error) => {
+          console.error('Whisper process error:', error);
+          resolve(''); // Don't reject, just return empty string
+        });
+        
+        // Set timeout for transcription (30 seconds max)
+        setTimeout(() => {
+          if (!whisperProcess.killed) {
+            whisperProcess.kill('SIGTERM');
+            console.warn('Whisper transcription timed out');
+            resolve('');
+          }
+        }, 30000);
+        
+      } catch (error) {
+        console.error('Failed to start Whisper transcription:', error);
+        resolve('');
+      }
+    });
+  }
+
+  /**
+   * Emit transcription event to main process
+   */
+  private emitTranscriptionEvent(sessionId: string, transcription: string, segment: AudioSegment): void {
+    // Store transcription for retrieval by main process
+    const recording = this.recordings.get(sessionId);
+    if (recording) {
+      // Add to recent transcriptions queue for this session
+      if (!recording.recentTranscriptions) {
+        recording.recentTranscriptions = [];
+      }
+      
+      recording.recentTranscriptions.push({
+        transcription,
+        timestamp: segment.startTime,
+        segmentId: segment.id
+      });
+      
+      // Keep only last 10 transcriptions to prevent memory buildup
+      if (recording.recentTranscriptions.length > 10) {
+        recording.recentTranscriptions = recording.recentTranscriptions.slice(-10);
+      }
+    }
+    
+    console.log(`Transcription ready for session ${sessionId}: ${transcription}`);
+  }
+
+  /**
+   * Get recent transcriptions for a session
+   */
+  getRecentTranscriptions(sessionId: string): Array<{transcription: string; timestamp: Date; segmentId: string}> {
+    const recording = this.recordings.get(sessionId);
+    if (!recording || !recording.recentTranscriptions) {
+      return [];
+    }
+    
+    // Return and clear the transcriptions
+    const transcriptions = [...recording.recentTranscriptions];
+    recording.recentTranscriptions = [];
+    return transcriptions;
+  }
+
+  /**
+   * Get recording status for a session
+   */
+  getRecordingStatus(sessionId: string): { isRecording: boolean; source?: AudioSource; startTime?: Date } {
+    const recording = this.recordings.get(sessionId);
+    if (!recording) {
+      return { isRecording: false };
+    }
+    
+    return {
+      isRecording: recording.isActive,
+      source: recording.source,
+      startTime: recording.startTime
+    };
+  }
+
+  /**
+   * Get transcript for a session
+   */
+  getTranscript(sessionId: string): string {
+    const recording = this.recordings.get(sessionId);
+    if (!recording) return '';
+    
+    return recording.segments
+      .filter(segment => segment.transcription)
+      .map(segment => segment.transcription)
+      .join(' ');
+  }
+
+  /**
+   * Check if service is ready
+   */
+  isReady(): boolean {
+    return this.isInitialized;
+  }
+
+  /**
+   * Cleanup all recordings and resources
+   */
+  async cleanup(): Promise<void> {
+    try {
+      // Stop all active recordings
+      const sessionIds = Array.from(this.recordings.keys());
+      for (const sessionId of sessionIds) {
+        await this.stopRecording(sessionId);
+      }
+      
+      // Clean up temp directory
+      if (fs.existsSync(this.tempDir)) {
+        const files = fs.readdirSync(this.tempDir);
+        for (const file of files) {
+          const filePath = path.join(this.tempDir, file);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        }
+      }
+      
+      console.log('Audio Service cleaned up');
+    } catch (error) {
+      console.error('Audio Service cleanup failed:', error);
+    }
+  }
+
+  /**
+   * Handle device busy error with recovery attempt
+   */
+  private async handleDeviceBusyError(sessionId: string): Promise<void> {
+    console.log(`Attempting to recover from device busy error for session: ${sessionId}`);
+    
+    const recording = this.recordings.get(sessionId);
+    if (!recording) return;
+    
+    try {
+      // Wait a moment and try to restart recording
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Stop current recording attempt
+      await this.stopRecording(sessionId);
+      
+      // Wait another moment before retry
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Attempt to restart with same source
+      await this.startRecording(recording.source, sessionId);
+      
+      console.log(`Successfully recovered from device busy error for session: ${sessionId}`);
+    } catch (error) {
+      console.error(`Failed to recover from device busy error for session ${sessionId}:`, error);
+    }
+  }
+
+  /**
+   * Handle device not found error
+   */
+  private async handleDeviceNotFoundError(sessionId: string): Promise<void> {
+    console.log(`Handling device not found error for session: ${sessionId}`);
+    
+    try {
+      // Re-check available devices
+      await this.checkAudioDevices();
+      
+      const recording = this.recordings.get(sessionId);
+      if (!recording) return;
+      
+      // If it was trying to use BlackHole, suggest fallback to microphone
+      if (recording.source === AudioSource.INTERVIEWER || recording.source === AudioSource.BOTH) {
+        console.warn('BlackHole device not available, consider installing BlackHole audio driver');
+      }
+      
+    } catch (error) {
+      console.error(`Failed to handle device not found error for session ${sessionId}:`, error);
+    }
+  }
+
+  /**
+   * Handle unexpected process exit
+   */
+  private async handleUnexpectedExit(sessionId: string, exitCode: number): Promise<void> {
+    console.log(`Handling unexpected exit (code: ${exitCode}) for session: ${sessionId}`);
+    
+    const recording = this.recordings.get(sessionId);
+    if (!recording) return;
+    
+    try {
+      // Clean up the failed recording
+      recording.isActive = false;
+      
+      // Attempt automatic restart if exit code suggests recoverable error
+      if (exitCode === 1 || exitCode === 255) { // Common recoverable FFmpeg errors
+        console.log(`Attempting automatic restart for session: ${sessionId}`);
+        
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Try to restart recording
+        await this.startRecording(recording.source, sessionId);
+        
+        console.log(`Successfully restarted recording for session: ${sessionId}`);
+      } else {
+        console.warn(`Non-recoverable exit code ${exitCode}, manual restart required`);
+      }
+      
+    } catch (error) {
+      console.error(`Failed to handle unexpected exit for session ${sessionId}:`, error);
+    }
+  }
+
+  /**
+   * Handle general process errors
+   */
+  private async handleProcessError(sessionId: string, error: Error): Promise<void> {
+    console.log(`Handling process error for session: ${sessionId}`, error.message);
+    
+    const recording = this.recordings.get(sessionId);
+    if (!recording) return;
+    
+    try {
+      // Clean up the failed recording
+      recording.isActive = false;
+      
+      // Determine if error is recoverable
+      const isRecoverable = this.isRecoverableError(error);
+      
+      if (isRecoverable) {
+        console.log(`Attempting recovery for recoverable error in session: ${sessionId}`);
+        
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Try to restart recording
+        await this.startRecording(recording.source, sessionId);
+        
+        console.log(`Successfully recovered from process error for session: ${sessionId}`);
+      } else {
+        console.error(`Non-recoverable error for session ${sessionId}, manual intervention required`);
+      }
+      
+    } catch (recoveryError) {
+      console.error(`Failed to recover from process error for session ${sessionId}:`, recoveryError);
+    }
+  }
+
+  /**
+   * Determine if an error is recoverable
+   */
+  private isRecoverableError(error: Error): boolean {
+    const recoverableErrors = [
+      'ENOENT', // File not found (temporary)
+      'EACCES', // Permission denied (might be temporary)
+      'EAGAIN', // Resource temporarily unavailable
+      'EBUSY',  // Device busy
+      'EINTR'   // Interrupted system call
+    ];
+    
+    return recoverableErrors.some(errorCode => 
+      error.message.includes(errorCode) || error.name === errorCode
+    );
+  }
+
+  /**
+   * Get service status with error information
+   */
+  getStatus(): any {
+    return {
+      initialized: this.isInitialized,
+      activeRecordings: this.recordings.size,
+      tempDir: this.tempDir,
+      recordings: Array.from(this.recordings.entries()).map(([sessionId, recording]) => ({
+        sessionId,
+        source: recording.source,
+        isActive: recording.isActive,
+        startTime: recording.startTime,
+        segmentCount: recording.segments.length,
+        hasRecentTranscriptions: (recording.recentTranscriptions?.length || 0) > 0
+      }))
+    };
+  }
+}

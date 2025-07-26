@@ -1,0 +1,38 @@
+{
+  "enabled": true,
+  "name": "Documentation Sync",
+  "description": "Listens to source code changes and automatically updates documentation in README or docs folder",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "*.ts",
+      "*.js",
+      "*.py",
+      "*.java",
+      "*.cpp",
+      "*.c",
+      "*.go",
+      "*.rs",
+      "*.rb",
+      "*.php",
+      "*.cs",
+      "*.swift",
+      "*.kt",
+      "*.scala",
+      "*.sh",
+      "*.yml",
+      "*.yaml",
+      "*.json",
+      "package.json",
+      "requirements.txt",
+      "Cargo.toml",
+      "pom.xml",
+      "build.gradle"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Source code files have been modified. Please review the changes and update the documentation accordingly. If there is a README.md file, update it to reflect any new features, API changes, or usage instructions. If there is a /docs folder, update the relevant documentation files there. Focus on keeping the documentation accurate and up-to-date with the current codebase."
+  }
+}

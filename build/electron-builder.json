@@ -1,0 +1,151 @@
+{
+  "appId": "com.interviewassistant.app",
+  "productName": "Interview Assistant",
+  "directories": {
+    "output": "dist",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist/**/*",
+    "node_modules/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "assets",
+      "to": "assets",
+      "filter": ["**/*"]
+    }
+  ],
+  "mac": {
+    "category": "public.app-category.productivity",
+    "icon": "assets/icon.icns",
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "bundleVersion": "1.0.0",
+    "minimumSystemVersion": "10.14.0",
+    "darkModeSupport": true,
+    "gatekeeperAssess": false,
+    "hardenedRuntime": true,
+    "entitlements": "build/entitlements.plist",
+    "entitlementsInherit": "build/entitlements.plist",
+    "notarize": {
+      "teamId": "${APPLE_TEAM_ID}"
+    },
+    "extendInfo": {
+      "NSMicrophoneUsageDescription": "This app needs microphone access for audio transcription during interviews.",
+      "NSCameraUsageDescription": "This app may need camera access for future features.",
+      "NSScreenCaptureDescription": "This app needs screen capture access for OCR functionality during interviews.",
+      "NSAppleEventsUsageDescription": "This app needs automation access for stealth operation.",
+      "LSUIElement": true,
+      "LSBackgroundOnly": false,
+      "CFBundleExecutable": "systemAssistance",
+      "CFBundleName": "systemAssistance",
+      "CFBundleDisplayName": "Interview Assistant"
+    }
+  },
+  "win": {
+    "icon": "assets/icon.ico",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "msi",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "publisherName": "Interview Assistant Team",
+    "verifyUpdateCodeSignature": true,
+    "certificateFile": "${WINDOWS_CERT_FILE}",
+    "certificatePassword": "${WINDOWS_CERT_PASSWORD}",
+    "timeStampServer": "http://timestamp.digicert.com",
+    "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowElevation": true,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "assets/icon.ico",
+    "uninstallerIcon": "assets/icon.ico",
+    "installerHeaderIcon": "assets/icon.ico",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Interview Assistant",
+    "include": "build/windows-installer.nsi",
+    "script": "build/windows-installer.nsi"
+  },
+  "msi": {
+    "oneClick": false,
+    "upgradeCode": "12345678-1234-1234-1234-123456789012"
+  },
+  "linux": {
+    "icon": "assets/icon.png",
+    "target": [
+      {
+        "target": "deb",
+        "arch": ["x64"]
+      },
+      {
+        "target": "AppImage",
+        "arch": ["x64"]
+      },
+      {
+        "target": "tar.gz",
+        "arch": ["x64"]
+      }
+    ],
+    "category": "Utility",
+    "packageCategory": "utils",
+    "vendor": "Interview Assistant Team",
+    "maintainer": "Interview Assistant Team <support@interviewassistant.com>",
+    "synopsis": "AI-powered interview assistance application",
+    "description": "A stealth application that provides AI-powered assistance during technical interviews using OCR, audio transcription, and RAG capabilities."
+  },
+  "deb": {
+    "priority": "optional",
+    "depends": [
+      "gconf2",
+      "gconf-service",
+      "libnotify4",
+      "libappindicator1",
+      "libxtst6",
+      "libnss3"
+    ],
+    "recommends": [
+      "pulseaudio"
+    ],
+    "suggests": [
+      "tesseract-ocr",
+      "ffmpeg"
+    ]
+  },
+  "appImage": {
+    "license": "MIT",
+    "category": "Utility"
+  },
+  "publish": {
+    "provider": "github",
+    "owner": "interview-assistant",
+    "repo": "app",
+    "private": false,
+    "releaseType": "release"
+  },
+  "buildDependenciesFromSource": true,
+  "nodeGypRebuild": true,
+  "npmRebuild": true,
+  "buildVersion": "1.0.0"
+}

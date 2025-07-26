@@ -1,0 +1,77 @@
+{
+  "timestamp": "2025-07-26T13:12:04.610Z",
+  "summary": {
+    "totalTests": 25,
+    "passed": 24,
+    "failed": 1,
+    "successRate": "96.0"
+  },
+  "suites": [
+    {
+      "suite": "Stealth Mode Functionality",
+      "passed": 3,
+      "failed": 0,
+      "duration": 1354,
+      "errors": []
+    },
+    {
+      "suite": "Session Management Workflow",
+      "passed": 4,
+      "failed": 0,
+      "duration": 1080,
+      "errors": []
+    },
+    {
+      "suite": "OCR and Screenshot Workflow",
+      "passed": 3,
+      "failed": 0,
+      "duration": 1073,
+      "errors": []
+    },
+    {
+      "suite": "Audio Recording and Transcription Workflow",
+      "passed": 3,
+      "failed": 1,
+      "duration": 2521,
+      "errors": [
+        "Audio service not available in test environment"
+      ]
+    },
+    {
+      "suite": "RAG (Knowledge Base) Workflow",
+      "passed": 2,
+      "failed": 0,
+      "duration": 1880,
+      "errors": []
+    },
+    {
+      "suite": "Settings and Configuration Workflow",
+      "passed": 3,
+      "failed": 0,
+      "duration": 2874,
+      "errors": []
+    },
+    {
+      "suite": "Error Recovery and Graceful Handling",
+      "passed": 3,
+      "failed": 0,
+      "duration": 2850,
+      "errors": []
+    },
+    {
+      "suite": "Performance and Latency Requirements",
+      "passed": 3,
+      "failed": 0,
+      "duration": 1258,
+      "errors": []
+    }
+  ],
+  "requirements": {
+    "stealth": true,
+    "ocr": true,
+    "audio": false,
+    "rag": true,
+    "performance": true,
+    "errorHandling": true
+  }
+}

@@ -1,0 +1,78 @@
+{
+    "name": "systemAssistance",
+    "productName": "systemAssistance",
+    "version": "1.0.0",
+    "description": "Interview assistance application with stealth capabilities",
+    "main": "dist/main.js",
+    "scripts": {
+      "build": "tsc",
+      "start": "npm run build && electron .",
+      "dev": "tsc && electron . --dev",
+      "pack": "electron-builder",
+      "dist": "electron-builder --publish=never",
+      "test": "jest",
+      "test:watch": "jest --watch",
+      "build:clean": "node build/build-scripts.js clean",
+      "build:deps": "node build/build-scripts.js deps",
+      "build:info": "node build/generate-build-info.js generate",
+      "build:app": "node build/build-scripts.js build",
+      "build:package": "node build/build-scripts.js package",
+      "build:installers": "node build/build-scripts.js installers",
+      "build:quick": "node build/build-scripts.js quick",
+      "build:full": "node build/build-scripts.js full",
+      "installer:windows": "node build/installer-config.js windows",
+      "installer:macos": "node build/installer-config.js macos",
+      "installer:linux": "node build/installer-config.js linux",
+      "installer:portable": "node build/installer-config.js portable",
+      "installer:all": "node build/installer-config.js all",
+      "test:installers": "node build/test-installers.js",
+      "release:create": "node build/release-automation.js create",
+      "release:validate": "node build/release-automation.js validate",
+      "release:tag": "node build/release-automation.js tag",
+      "release": "npm run build:full && npm run installer:all && npm run test:installers"
+    },
+    "build": {
+      "appId": "com.systemassistance.app",
+      "productName": "systemAssistance",
+      "directories": {
+        "output": "dist-electron"
+      },
+      "files": [
+        "dist/**/*",
+        "assets/**/*",
+        "node_modules/**/*"
+      ],
+      "mac": {
+        "category": "public.app-category.productivity",
+        "target": "dmg",
+        "icon": "assets/icon.icns"
+      }
+    },
+    "devDependencies": {
+      "@types/node": "^20.0.0",
+      "@types/jest": "^29.0.0",
+      "electron": "^27.0.0",
+      "electron-builder": "^24.0.0",
+      "jest": "^29.0.0",
+      "ts-jest": "^29.0.0",
+      "typescript": "^5.0.0",
+      "electron-packager": "^17.1.0",
+      "electron-winstaller": "^5.0.0",
+      "electron-installer-dmg": "^4.0.0",
+      "electron-installer-debian": "^3.2.0",
+      "archiver": "^5.3.0",
+      "asar": "^3.2.0",
+      "glob": "^10.3.0"
+    },
+    "dependencies": {
+      "tesseract.js": "^4.1.0",
+      "node-whisper": "^0.1.0",
+      "openai": "^4.0.0",
+      "sqlite3": "^5.1.0",
+      "faiss-node": "^0.5.0",
+      "crypto": "^1.0.1",
+      "electron-store": "^8.1.0",
+      "globalthis": "^1.0.3",
+      "electron-updater": "^6.1.0"
+    }
+  }

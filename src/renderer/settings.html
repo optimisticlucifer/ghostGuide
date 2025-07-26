@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Settings</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #1e1e1e;
+            color: white;
+            width: 600px;
+            height: 700px;
+            overflow-y: auto;
+        }
+        
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .section {
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 15px;
+            background: #2d2d2d;
+        }
+        
+        .section-title {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 15px;
+            color: #e0e0e0;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: #b0b0b0;
+        }
+        
+        input, select, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #444;
+            background: #3d3d3d;
+            color: white;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        
+        textarea {
+            min-height: 120px;
+            font-family: monospace;
+            resize: vertical;
+        }
+        
+        button {
+            padding: 8px 16px;
+            border: 1px solid #444;
+            background: #007acc;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        button:hover {
+            background: #0086d4;
+        }
+        
+        button.secondary {
+            background: #3d3d3d;
+        }
+        
+        button.secondary:hover {
+            background: #4d4d4d;
+        }
+        
+        .button-row {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #444;
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            color: #b0b0b0;
+        }
+        
+        .tab.active {
+            border-bottom: 2px solid #007acc;
+            color: #e0e0e0;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .status {
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .status.success {
+            background: #2e7d32;
+            color: white;
+        }
+        
+        .status.error {
+            background: #c62828;
+            color: white;
+        }
+        
+        .status.warning {
+            background: #f9a825;
+            color: black;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .prompt-editor {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .prompt-selector {
+            display: flex;
+            gap: 10px;
+            align-items: end;
+        }
+        
+        .prompt-selector > div {
+            flex: 1;
+        }
+        
+        .variables-help {
+            font-size: 12px;
+            color: #b0b0b0;
+            margin-bottom: 10px;
+            padding: 8px;
+            background: #333;
+            border-radius: 4px;
+        }
+        
+        .persona-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        
+        .persona-table th,
+        .persona-table td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #444;
+        }
+        
+        .persona-table th {
+            background: #333;
+            font-weight: 500;
+        }
+        
+        .persona-table tr:hover {
+            background: #333;
+        }
+        
+        .persona-table button {
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="tabs">
+            <div class="tab active" data-tab="general">General</div>
+            <div class="tab" data-tab="api">API Keys</div>
+            <div class="tab" data-tab="prompts">Prompt Library</div>
+        </div>
+        
+        <div class="tab-content active" id="general">
+            <div class="section">
+                <div class="section-title">General Settings</div>
+                
+                <div class="form-group">
+                    <label for="defaultProfession">Default Profession</label>
+                    <select id="defaultProfession">
+                        <option value="software-engineer">Software Engineer</option>
+                        <option value="data-scientist">Data Scientist</option>
+                        <option value="product-manager">Product Manager</option>
+                        <option value="designer">Designer</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="defaultInterviewType">Default Interview Type</label>
+                    <select id="defaultInterviewType">
+                        <option value="technical">Technical</option>
+                        <option value="behavioral">Behavioral</option>
+                        <option value="system-design">System Design</option>
+                        <option value="coding">Coding</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="maxSessions">Maximum Concurrent Sessions</label>
+                    <select id="maxSessions">
+                        <option value="1">1</option>
+                        <option value="3">3</option>
+                        <option value="5">5</option>
+                        <option value="10">10</option>
+                    </select>
+                </div>
+                
+                <div class="button-row">
+                    <button id="saveGeneralSettings">Save Settings</button>
+                </div>
+                
+                <div class="status hidden" id="generalStatus"></div>
+            </div>
+        </div>
+        
+        <div class="tab-content" id="api">
+            <div class="section">
+                <div class="section-title">API Configuration</div>
+                
+                <div class="form-group">
+                    <label for="openaiApiKey">OpenAI API Key</label>
+                    <input type="password" id="openaiApiKey" placeholder="sk-..." />
+                </div>
+                
+                <div class="button-row">
+                    <button id="testApiKey">Test Connection</button>
+                    <button id="saveApiKey">Save API Key</button>
+                </div>
+                
+                <div class="status hidden" id="apiKeyStatus"></div>
+            </div>
+        </div>
+        
+        <div class="tab-content" id="prompts">
+            <div class="section">
+                <div class="section-title">Prompt Library Management</div>
+                
+                <div class="prompt-editor">
+                    <div class="prompt-selector">
+                        <div>
+                            <label for="promptProfession">Profession</label>
+                            <select id="promptProfession">
+                                <option value="software-engineer">Software Engineer</option>
+                                <option value="data-scientist">Data Scientist</option>
+                                <option value="product-manager">Product Manager</option>
+                                <option value="designer">Designer</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label for="promptInterviewType">Interview Type</label>
+                            <select id="promptInterviewType">
+                                <option value="technical">Technical</option>
+                                <option value="behavioral">Behavioral</option>
+                                <option value="system-design">System Design</option>
+                                <option value="coding">Coding</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label for="promptAction">Action Type</label>
+                            <select id="promptAction">
+                                <option value="system">System Prompt</option>
+                                <option value="screenshot">Screenshot Analysis</option>
+                                <option value="debug">Code Debugging</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="variables-help">
+                        Available variables: {profession}, {interview_type}, {action}, {complexity_level}, {context}
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="promptTemplate">Prompt Template</label>
+                        <textarea id="promptTemplate" placeholder="Enter prompt template..."></textarea>
+                    </div>
+                    
+                    <div class="button-row">
+                        <button id="resetPrompt" class="secondary">Reset to Default</button>
+                        <button id="savePrompt">Save Prompt</button>
+                    </div>
+                </div>
+                
+                <div class="status hidden" id="promptStatus"></div>
+            </div>
+            
+            <div class="section">
+                <div class="section-title">Persona Management</div>
+                
+                <div class="form-group">
+                    <label for="newPersona">Add New Persona</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="newPersona" placeholder="e.g., DevOps Engineer" style="flex: 1;" />
+                        <button id="addPersona">Add Persona</button>
+                    </div>
+                </div>
+                
+                <table class="persona-table">
+                    <thead>
+                        <tr>
+                            <th>Profession</th>
+                            <th>Interview Types</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="personaTableBody">
+                        <!-- Populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <script src="settings-renderer.js"></script>
+</body>
+</html>
