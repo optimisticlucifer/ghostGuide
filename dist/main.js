@@ -39,11 +39,18 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
-const uuid_1 = require("uuid");
 const electron_store_1 = __importDefault(require("electron-store"));
 const openai_1 = __importDefault(require("openai"));
 const OCRService_1 = require("./services/OCRService");
 const CaptureService_1 = require("./services/CaptureService");
+const AudioService_1 = require("./services/AudioService");
+const RAGService_1 = require("./services/RAGService");
+const ChatService_1 = require("./services/ChatService");
+const ConfigurationManager_1 = require("./services/ConfigurationManager");
+const PromptLibraryService_1 = require("./services/PromptLibraryService");
+const SessionManager_1 = require("./services/SessionManager");
+const ScreenSharingDetectionService_1 = require("./services/ScreenSharingDetectionService");
+const types_1 = require("./types");
 class InterviewAssistant {
     constructor() {
         this.mainWindow = null;
@@ -51,11 +58,21 @@ class InterviewAssistant {
         this.settingsWindow = null;
         this.sessions = new Map();
         this.openai = null;
+        this.isScreenSharingActive = false;
         this.store = new electron_store_1.default();
-        // Initialize OCR service
+        // Initialize services
         this.ocrService = new OCRService_1.OCRService();
-        // Initialize capture service
         this.captureService = new CaptureService_1.CaptureService();
+        this.audioService = new AudioService_1.AudioService();
+        this.ragService = new RAGService_1.RAGService();
+        this.configurationManager = new ConfigurationManager_1.ConfigurationManager();
+        this.promptLibraryService = new PromptLibraryService_1.PromptLibraryService();
+        this.sessionManager = new SessionManager_1.SessionManager();
+        // Set up service dependencies
+        this.promptLibraryService.setConfigurationManager(this.configurationManager);
+        this.chatService = new ChatService_1.ChatService(this.configurationManager, this.promptLibraryService, this.sessionManager, this.ragService);
+        // Initialize services asynchronously
+        this.initializeServicesAsync();
         // Initialize logging
         this.initializeLogging();
         // Initialize OpenAI if API key exists
@@ -64,9 +81,13 @@ class InterviewAssistant {
             this.initialize();
         });
         electron_1.app.on('window-all-closed', () => {
+            this.cleanup();
             if (process.platform !== 'darwin') {
                 electron_1.app.quit();
             }
+        });
+        electron_1.app.on('before-quit', () => {
+            this.cleanup();
         });
         electron_1.app.on('activate', () => {
             if (electron_1.BrowserWindow.getAllWindows().length === 0) {
@@ -74,6 +95,36 @@ class InterviewAssistant {
             }
         });
         this.setupIpcHandlers();
+    }
+    cleanup() {
+        this.writeLog('🧹 [CLEANUP] Starting application cleanup...');
+        try {
+            // Stop screen sharing detection
+            if (this.screenSharingDetectionService) {
+                this.screenSharingDetectionService.stop();
+                this.writeLog('✅ [CLEANUP] Screen sharing detection stopped');
+            }
+            // Unregister global shortcuts
+            electron_1.globalShortcut.unregisterAll();
+            this.writeLog('✅ [CLEANUP] Global shortcuts unregistered');
+            this.writeLog('🧹 [CLEANUP] Application cleanup completed');
+        }
+        catch (error) {
+            this.writeLog(`❌ [CLEANUP] Cleanup failed: ${error.message}`);
+        }
+    }
+    async initializeServicesAsync() {
+        try {
+            // Initialize configuration manager first
+            await this.configurationManager.initialize();
+            // Initialize other services that depend on configuration
+            await this.audioService.initialize();
+            await this.ocrService.initialize();
+            this.writeLog('✅ [SERVICES] All services initialized successfully');
+        }
+        catch (error) {
+            this.writeLog(`❌ [SERVICES] Service initialization failed: ${error.message}`);
+        }
     }
     initializeLogging() {
         // Create logs directory
@@ -113,14 +164,22 @@ class InterviewAssistant {
         if (apiKey) {
             this.writeLog('🔑 [OPENAI] Initializing OpenAI client with stored API key');
             this.openai = new openai_1.default({ apiKey });
+            // Update configuration manager with API key
+            this.configurationManager.setApiKey(apiKey);
         }
         else {
             this.writeLog('⚠️ [OPENAI] No API key found - using fallback responses');
         }
     }
     async initialize() {
-        // Set process name for stealth
+        // Enhanced stealth mode setup
         process.title = 'systemAssistance';
+        // Hide from dock on macOS
+        if (process.platform === 'darwin') {
+            electron_1.app.dock?.hide();
+        }
+        // Start screen sharing detection
+        this.startScreenSharingDetection();
         console.log('🔧 [INIT] Setting up global hotkeys...');
         // Register global hotkeys
         electron_1.globalShortcut.register('CommandOrControl+G', () => {
@@ -136,6 +195,75 @@ class InterviewAssistant {
         console.log('📱 Press Cmd+H (or Ctrl+H) to hide all session windows');
         console.log('🔧 [INIT] Initialization complete');
     }
+    startScreenSharingDetection() {
+        this.writeLog('🥷 [STEALTH] Starting screen sharing detection...');
+        this.screenSharingDetectionService = new ScreenSharingDetectionService_1.ScreenSharingDetectionService({
+            checkInterval: 5000, // Check every 5 seconds instead of 1
+            processPatterns: [
+                'zoom', 'teams', 'meet', 'webex', 'skype', 'discord',
+                'obs', 'streamlabs', 'xsplit', 'wirecast', 'mmhmm',
+                'loom', 'screenflow', 'camtasia', 'quicktime'
+            ],
+            browserPatterns: [
+                'chrome.*--enable-usermedia-screen-capturing',
+                'firefox.*screen',
+                'safari.*screen'
+            ]
+        }, (isScreenSharing) => this.handleScreenSharingStateChange(isScreenSharing));
+        this.screenSharingDetectionService.start();
+    }
+    handleScreenSharingStateChange(isScreenSharing) {
+        // Only update if state actually changed (debouncing)
+        if (this.isScreenSharingActive !== isScreenSharing) {
+            this.isScreenSharingActive = isScreenSharing;
+            this.setWindowsInvisibleToScreenShare(isScreenSharing);
+            const status = isScreenSharing ? 'detected' : 'stopped';
+            this.writeLog(`🥷 [STEALTH] Screen sharing ${status}`);
+        }
+    }
+    setWindowsInvisibleToScreenShare(invisible) {
+        const windows = [
+            { window: this.mainWindow, name: 'main' },
+            { window: this.settingsWindow, name: 'settings' }
+        ];
+        // Add session windows
+        this.sessionWindows.forEach((window, sessionId) => {
+            windows.push({ window, name: `session-${sessionId}` });
+        });
+        let successCount = 0;
+        let errorCount = 0;
+        windows.forEach(({ window, name }) => {
+            try {
+                if (window && !window.isDestroyed()) {
+                    // Use content protection instead of opacity - keeps window visible to user
+                    window.setContentProtection(invisible);
+                    // macOS specific: set sharing type to none
+                    if (process.platform === 'darwin' && window.setSharingType) {
+                        window.setSharingType(invisible ? 'none' : 'readOnly');
+                    }
+                    successCount++;
+                }
+                else if (window) {
+                    this.writeLog(`⚠️ [STEALTH] Skipping destroyed ${name} window`);
+                }
+            }
+            catch (error) {
+                errorCount++;
+                this.writeLog(`❌ [STEALTH] Failed to set content protection for ${name} window: ${error.message}`);
+            }
+        });
+        if (successCount > 0) {
+            if (invisible) {
+                this.writeLog(`🥷 [STEALTH] ${successCount} windows protected from screen sharing (visible to user, hidden from sharing)`);
+            }
+            else {
+                this.writeLog(`🥷 [STEALTH] ${successCount} windows unprotected from screen sharing (visible to sharing)`);
+            }
+        }
+        if (errorCount > 0) {
+            this.writeLog(`❌ [STEALTH] Failed to update ${errorCount} windows`);
+        }
+    }
     createMainWindow() {
         console.log('🪟 [WINDOW] Creating main window...');
         this.mainWindow = new electron_1.BrowserWindow({
@@ -143,15 +271,34 @@ class InterviewAssistant {
             height: 400,
             webPreferences: {
                 nodeIntegration: true,
-                contextIsolation: false
+                contextIsolation: false,
+                // Additional security to prevent detection
+                backgroundThrottling: false,
+                offscreen: false
             },
             title: 'Interview Assistant',
             resizable: false,
             alwaysOnTop: true,
             skipTaskbar: true,
-            // Hide from screen capture/sharing
+            // Enhanced stealth properties with opacity control
+            show: true, // Show window but control visibility via opacity
+            frame: false,
+            transparent: true,
+            hasShadow: false,
+            focusable: true, // Allow focusing for user interaction
+            minimizable: false,
+            maximizable: false,
+            closable: true,
+            movable: true,
+            // macOS specific stealth properties
             hiddenInMissionControl: true,
-            fullscreenable: false
+            fullscreenable: false,
+            // Additional stealth properties
+            titleBarStyle: 'hidden',
+            vibrancy: 'under-window',
+            visualEffectState: 'inactive',
+            // Start with normal opacity - will be controlled by screen sharing detection
+            opacity: 1
         });
         const html = `
       <!DOCTYPE html>
@@ -161,17 +308,24 @@ class InterviewAssistant {
         <style>
           body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            margin: 15px;
+            margin: 0;
+            padding: 15px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            height: 100vh;
+            height: calc(100vh - 30px);
             overflow: hidden;
+            -webkit-app-region: drag;
+            box-sizing: border-box;
           }
           .container {
             display: flex;
             flex-direction: column;
             gap: 12px;
             height: 100%;
+            -webkit-app-region: no-drag;
+            background: rgba(0,0,0,0.1);
+            border-radius: 8px;
+            padding: 10px;
           }
           .title {
             font-size: 14px;
@@ -187,6 +341,7 @@ class InterviewAssistant {
             font-size: 12px;
             background: rgba(255,255,255,0.9);
             color: #333;
+            -webkit-app-region: no-drag;
           }
           button {
             background: rgba(255,255,255,0.95);
@@ -272,6 +427,11 @@ class InterviewAssistant {
       </html>
     `;
         this.mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+        // Set content protection to hide from screen sharing (like version1)
+        this.mainWindow.setContentProtection(true);
+        if (process.platform === 'darwin' && this.mainWindow.setSharingType) {
+            this.mainWindow.setSharingType('none');
+        }
         this.mainWindow.on('closed', () => {
             console.log('🪟 [WINDOW] Main window closed');
             this.mainWindow = null;
@@ -285,16 +445,34 @@ class InterviewAssistant {
             height: 500,
             webPreferences: {
                 nodeIntegration: true,
-                contextIsolation: false
+                contextIsolation: false,
+                // Additional security to prevent detection
+                backgroundThrottling: false,
+                offscreen: false
             },
             title: `${config.profession} - ${config.interviewType}`,
             resizable: false,
             alwaysOnTop: true,
             skipTaskbar: true,
-            // Hide from screen capture/sharing
+            // Enhanced stealth properties with opacity control
+            show: true, // Show window but control visibility via opacity
+            frame: false,
+            transparent: true,
+            hasShadow: false,
+            focusable: true, // Allow focusing for user interaction
+            minimizable: false,
+            maximizable: false,
+            closable: true,
+            movable: true,
+            // macOS specific stealth properties
             hiddenInMissionControl: true,
-            // visibleOnAllWorkspaces: true,
-            fullscreenable: false
+            fullscreenable: false,
+            // Additional stealth properties
+            titleBarStyle: 'hidden',
+            vibrancy: 'under-window',
+            visualEffectState: 'inactive',
+            // Start with normal opacity - will be controlled by screen sharing detection
+            opacity: 1
         });
         const html = `
       <!DOCTYPE html>
@@ -309,6 +487,7 @@ class InterviewAssistant {
             flex-direction: column;
             height: 100vh;
             background: #f8f9fa;
+            -webkit-app-region: no-drag;
           }
           .toolbar {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -317,6 +496,7 @@ class InterviewAssistant {
             gap: 6px;
             border-bottom: 1px solid #ddd;
             flex-wrap: wrap;
+            -webkit-app-region: drag;
           }
           .toolbar button {
             padding: 6px 10px;
@@ -327,6 +507,7 @@ class InterviewAssistant {
             font-size: 11px;
             font-weight: 500;
             transition: all 0.2s;
+            -webkit-app-region: no-drag;
           }
           .toolbar button:hover {
             background: white;
@@ -337,6 +518,7 @@ class InterviewAssistant {
             padding: 10px;
             overflow-y: auto;
             background: white;
+            -webkit-app-region: no-drag;
           }
           .message {
             margin-bottom: 15px;
@@ -378,6 +560,7 @@ class InterviewAssistant {
             border: 1px solid #ddd;
             border-radius: 6px;
             font-size: 14px;
+            -webkit-app-region: no-drag;
           }
           .input-container button {
             padding: 10px 16px;
@@ -387,6 +570,7 @@ class InterviewAssistant {
             border-radius: 6px;
             cursor: pointer;
             font-weight: 500;
+            -webkit-app-region: no-drag;
           }
           .welcome-message {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -452,9 +636,7 @@ class InterviewAssistant {
           
           function closeSession() {
             console.log('❌ [SESSION-WINDOW] Close button clicked');
-            if (confirm('Close this interview session?')) {
-              ipcRenderer.send('close-session', sessionId);
-            }
+            ipcRenderer.send('close-session', sessionId);
           }
           
           function sendMessage() {
@@ -505,6 +687,21 @@ class InterviewAssistant {
             }
           });
           
+          ipcRenderer.on('audio-transcription', (event, data) => {
+            console.log('🎤 [IPC] Received audio-transcription:', data);
+            if (data.sessionId === sessionId) {
+              // Show the transcription and send it for AI processing
+              addMessage('🎤 **Audio Transcribed:** "' + data.transcription + '"', 'user');
+              
+              // Send transcription to chat service for AI response
+              ipcRenderer.send('chat-message', { 
+                sessionId, 
+                message: data.transcription,
+                source: 'audio-transcription'
+              });
+            }
+          });
+
           ipcRenderer.on('ocr-result', (event, data) => {
             console.log('📷 [IPC] Received ocr-result:', data);
             if (data.sessionId === sessionId) {
@@ -532,12 +729,7 @@ class InterviewAssistant {
             }
           });
           
-          ipcRenderer.on('debug-result', (event, data) => {
-            console.log('🐛 [IPC] Received debug-result:', data);
-            if (data.sessionId === sessionId) {
-              addMessage('🐛 Debug complete: Found potential issues in the code', 'ai');
-            }
-          });
+
           
           ipcRenderer.on('recording-status', (event, data) => {
             console.log('🎤 [IPC] Received recording-status:', data);
@@ -550,7 +742,40 @@ class InterviewAssistant {
           ipcRenderer.on('rag-success', (event, data) => {
             console.log('📚 [IPC] Received rag-success:', data);
             if (data.sessionId === sessionId) {
-              addMessage('📚 Study materials processed successfully!', 'ai');
+              addMessage('📚 Study materials processed successfully! ' + data.documentsProcessed + ' documents from ' + data.folderPath, 'ai');
+            }
+          });
+          
+          ipcRenderer.on('rag-error', (event, data) => {
+            console.log('📚 [IPC] Received rag-error:', data);
+            if (data.sessionId === sessionId) {
+              addMessage('📚 Error processing study materials: ' + data.error, 'ai');
+            }
+          });
+          
+          ipcRenderer.on('transcription-received', (event, data) => {
+            console.log('🎤 [IPC] Received transcription:', data);
+            if (data.sessionId === sessionId) {
+              addMessage('🎤 **Transcription:** "' + data.transcription + '"', 'ai');
+            }
+          });
+          
+          ipcRenderer.on('debug-result', (event, data) => {
+            console.log('🐛 [IPC] Received debug-result:', data);
+            if (data.sessionId === sessionId) {
+              // First show the OCR text that was extracted
+              if (data.text) {
+                addMessage('🐛 **Code Extracted:** "' + data.text + '"', 'ai');
+              }
+              
+              // Then show the debug analysis
+              if (data.analysis) {
+                console.log('🐛 [IPC] Adding debug analysis to chat');
+                addMessage(data.analysis, 'ai');
+              } else {
+                console.log('🐛 [IPC] No debug analysis available');
+                addMessage('❌ No debug analysis could be generated', 'ai');
+              }
             }
           });
           
@@ -564,6 +789,11 @@ class InterviewAssistant {
       </html>
     `;
         sessionWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+        // Set content protection to hide from screen sharing (like version1)
+        sessionWindow.setContentProtection(true);
+        if (process.platform === 'darwin' && sessionWindow.setSharingType) {
+            sessionWindow.setSharingType('none');
+        }
         sessionWindow.on('closed', () => {
             console.log(`🪟 [SESSION] Session window closed: ${sessionId}`);
             this.sessionWindows.delete(sessionId);
@@ -615,15 +845,98 @@ class InterviewAssistant {
     async captureScreen() {
         this.writeLog('📷 [CAPTURE] Starting full-resolution screen capture...');
         try {
+            // Hide all app windows before capture to ensure stealth
+            this.hideAllAppWindows();
+            // Wait a moment for windows to hide
+            await new Promise(resolve => setTimeout(resolve, 100));
             // Use the improved capture service
             const buffer = await this.captureService.captureScreen();
+            // Restore windows after capture
+            this.restoreAllAppWindows();
             this.writeLog(`📷 [CAPTURE] Screenshot captured successfully, size: ${buffer.length} bytes`);
             return buffer;
         }
         catch (error) {
+            // Ensure windows are restored even if capture fails
+            this.restoreAllAppWindows();
             this.writeLog(`❌ [CAPTURE] Screen capture failed: ${error.message}`);
             throw error;
         }
+    }
+    hideAllAppWindows() {
+        if (this.mainWindow && this.mainWindow.isVisible()) {
+            this.mainWindow.hide();
+        }
+        this.sessionWindows.forEach(window => {
+            if (window.isVisible()) {
+                window.hide();
+            }
+        });
+        if (this.settingsWindow && this.settingsWindow.isVisible()) {
+            this.settingsWindow.hide();
+        }
+    }
+    restoreAllAppWindows() {
+        // Only restore windows that were visible before
+        // For now, we'll keep them hidden for stealth mode
+        // Users can use hotkeys to show them again
+    }
+    startTranscriptionPolling(sessionId) {
+        const pollTranscriptions = async () => {
+            const session = this.sessions.get(sessionId);
+            if (!session || !session.isRecording) {
+                return; // Stop polling if session ended or recording stopped
+            }
+            try {
+                // Get recent transcriptions from audio service
+                const transcriptions = this.audioService.getRecentTranscriptions(sessionId);
+                for (const transcription of transcriptions) {
+                    if (transcription.transcription && transcription.transcription.trim().length > 0) {
+                        console.log(`🎤 [TRANSCRIPTION] New transcription for session ${sessionId}: ${transcription.transcription}`);
+                        // Send transcription to session window
+                        const sessionWindow = this.sessionWindows.get(sessionId);
+                        if (sessionWindow) {
+                            sessionWindow.webContents.send('transcription-received', {
+                                sessionId,
+                                transcription: transcription.transcription,
+                                timestamp: transcription.timestamp,
+                                segmentId: transcription.segmentId
+                            });
+                        }
+                        // Process transcription with AI for coaching
+                        if (this.openai) {
+                            try {
+                                const aiResponse = await this.chatService.processTranscript(sessionId, transcription.transcription, types_1.AudioSource.BOTH);
+                                // Send AI coaching response
+                                if (sessionWindow) {
+                                    sessionWindow.webContents.send('chat-response', {
+                                        sessionId,
+                                        content: `🎤 **Audio Coaching:**\n\n${aiResponse}`,
+                                        timestamp: new Date().toISOString()
+                                    });
+                                }
+                            }
+                            catch (error) {
+                                console.error(`🎤 [AI] Failed to process transcription for session ${sessionId}:`, error);
+                            }
+                        }
+                    }
+                }
+                // Continue polling if still recording
+                if (session.isRecording) {
+                    setTimeout(pollTranscriptions, 2000); // Poll every 2 seconds
+                }
+            }
+            catch (error) {
+                console.error(`🎤 [TRANSCRIPTION] Polling error for session ${sessionId}:`, error);
+                // Continue polling despite errors
+                if (session && session.isRecording) {
+                    setTimeout(pollTranscriptions, 5000); // Retry after 5 seconds
+                }
+            }
+        };
+        // Start polling after initial delay
+        setTimeout(pollTranscriptions, 3000);
     }
     async extractTextFromImage(imageBuffer) {
         this.writeLog('📷 [OCR] Starting real text extraction...');
@@ -739,6 +1052,42 @@ Format your response with clear sections and use markdown for better readability
 1. Go to Settings (⚙️ button)
 2. Add your OpenAI API key
 3. Get intelligent, context-aware analysis for every screenshot!`;
+    }
+    generateFallbackDebugAnalysis(ocrText, profession) {
+        this.writeLog(`🤖 [AI] Generating fallback debug analysis for ${profession}`);
+        return `🐛 **Code Debug Analysis**
+
+**Code Detected:** ${ocrText}
+
+**Debug Analysis for ${profession}:**
+
+**Potential Issues to Check:**
+• **Null Pointer Exceptions** - Check for null references before use
+• **Array Bounds** - Verify array indices are within valid range
+• **Logic Errors** - Review conditional statements and loops
+• **Memory Leaks** - Ensure proper resource cleanup
+• **Type Mismatches** - Verify variable types and conversions
+
+**Common Debugging Steps:**
+1. **Add Logging** - Insert debug statements to trace execution
+2. **Check Inputs** - Validate all input parameters
+3. **Test Edge Cases** - Try boundary conditions and null inputs
+4. **Review Algorithms** - Verify logic matches intended behavior
+5. **Use Debugger** - Step through code line by line
+
+**Best Practices:**
+• Use meaningful variable names
+• Add proper error handling
+• Write unit tests for functions
+• Document complex logic
+• Follow coding standards
+
+**⚠️ Note:** This is a basic debug analysis. For detailed, AI-powered code review with specific bug identification and fixes, please configure your OpenAI API key in Settings.
+
+**Next Steps:**
+1. Go to Settings (⚙️ button)
+2. Add your OpenAI API key
+3. Get intelligent, context-aware debugging assistance!`;
     }
     createSettingsWindow() {
         console.log('⚙️ [SETTINGS] Creating settings window...');
@@ -1010,6 +1359,11 @@ Format your response with clear sections and use markdown for better readability
       </html>
     `;
         this.settingsWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+        // Set content protection to hide from screen sharing (like version1)
+        this.settingsWindow.setContentProtection(true);
+        if (process.platform === 'darwin' && this.settingsWindow.setSharingType) {
+            this.settingsWindow.setSharingType('none');
+        }
         this.settingsWindow.on('closed', () => {
             console.log('⚙️ [SETTINGS] Settings window closed');
             this.settingsWindow = null;
@@ -1100,59 +1454,71 @@ Format your response with clear sections and use markdown for better readability
     }
     setupIpcHandlers() {
         console.log('🔧 [IPC] Setting up IPC handlers...');
-        electron_1.ipcMain.on('create-session', (event, config) => {
-            const sessionId = (0, uuid_1.v4)();
-            console.log(`🚀 [IPC] Creating session: ${sessionId}`, config);
-            const sessionWindow = this.createSessionWindow(sessionId, {
-                id: sessionId,
-                profession: config.profession,
-                interviewType: config.interviewType,
-                createdAt: new Date(),
-                isActive: true
-            });
-            console.log(`🚀 [IPC] Session created successfully: ${config.profession} - ${config.interviewType} (ID: ${sessionId})`);
-        });
-        electron_1.ipcMain.on('close-session', (event, sessionId) => {
-            console.log(`🔴 [IPC] Closing session: ${sessionId}`);
-            const window = this.sessionWindows.get(sessionId);
-            if (window) {
-                window.close();
-                console.log(`🔴 [IPC] Session closed: ${sessionId}`);
+        electron_1.ipcMain.on('create-session', async (event, config) => {
+            try {
+                console.log(`🚀 [IPC] Creating session with config:`, config);
+                // Create session using SessionManager
+                const session = await this.sessionManager.createSession({
+                    profession: config.profession,
+                    interviewType: config.interviewType
+                });
+                const sessionWindow = this.createSessionWindow(session.id, {
+                    id: session.id,
+                    profession: session.profession,
+                    interviewType: session.interviewType,
+                    createdAt: new Date(),
+                    isActive: true
+                });
+                console.log(`🚀 [IPC] Session created successfully: ${session.profession} - ${session.interviewType} (ID: ${session.id})`);
             }
-            else {
-                console.log(`⚠️ [IPC] Session window not found: ${sessionId}`);
+            catch (error) {
+                console.error(`🚀 [IPC] Failed to create session:`, error);
+            }
+        });
+        electron_1.ipcMain.on('close-session', async (event, sessionId) => {
+            console.log(`🔴 [IPC] Closing session: ${sessionId}`);
+            try {
+                // Stop any active recording
+                if (this.audioService.getRecordingStatus(sessionId).isRecording) {
+                    await this.audioService.stopRecording(sessionId);
+                }
+                // Close session in SessionManager
+                await this.sessionManager.closeSession(sessionId);
+                // Close window
+                const window = this.sessionWindows.get(sessionId);
+                if (window) {
+                    window.close();
+                    console.log(`🔴 [IPC] Session closed: ${sessionId}`);
+                }
+                else {
+                    console.log(`⚠️ [IPC] Session window not found: ${sessionId}`);
+                }
+            }
+            catch (error) {
+                console.error(`🔴 [IPC] Error closing session ${sessionId}:`, error);
             }
         });
         electron_1.ipcMain.on('chat-message', async (event, data) => {
-            const { sessionId, message } = data;
+            const { sessionId, message, source } = data;
             const session = this.sessions.get(sessionId);
-            console.log(`💬 [IPC] Chat message in session ${sessionId}:`, message);
+            if (source === 'audio-transcription') {
+                console.log(`🎤 [IPC] Audio transcription in session ${sessionId}:`, message);
+            }
+            else {
+                console.log(`💬 [IPC] Chat message in session ${sessionId}:`, message);
+            }
             try {
                 let aiResponse = '';
                 if (this.openai && session) {
-                    console.log(`🤖 [OPENAI] Using real OpenAI for ${session.profession} ${session.interviewType}`);
-                    // Create context-aware system prompt
-                    const systemPrompt = `You are an expert interview coach specializing in ${session.profession} ${session.interviewType} interviews. 
-
-Your role is to:
-- Provide helpful, accurate guidance for interview questions
-- Explain concepts clearly and concisely
-- Offer practical tips and strategies
-- Help the candidate think through problems step by step
-- Suggest improvements to their approach
-
-Keep responses focused, actionable, and encouraging. Use markdown formatting for better readability.`;
-                    const completion = await this.openai.chat.completions.create({
-                        model: 'gpt-3.5-turbo',
-                        messages: [
-                            { role: 'system', content: systemPrompt },
-                            { role: 'user', content: message }
-                        ],
-                        max_tokens: 500,
-                        temperature: 0.7
-                    });
-                    aiResponse = completion.choices[0].message.content || 'I apologize, but I could not generate a response. Please try again.';
-                    console.log(`🤖 [OPENAI] Generated response for session ${sessionId}`);
+                    console.log(`🤖 [OPENAI] Using ChatService with conversation context for ${session.profession} ${session.interviewType}`);
+                    // Add context for audio transcriptions
+                    let contextualMessage = message;
+                    if (source === 'audio-transcription') {
+                        contextualMessage = `[Audio Transcription] The user said: "${message}". Please provide interview coaching advice or answer their question based on this audio input.`;
+                    }
+                    // Use ChatService to maintain conversation context
+                    aiResponse = await this.chatService.sendMessage(sessionId, contextualMessage);
+                    console.log(`🤖 [OPENAI] Generated contextual response for session ${sessionId}`);
                 }
                 else {
                     console.log(`⚠️ [OPENAI] No API key or session found, using fallback response`);
@@ -1233,45 +1599,176 @@ Keep responses focused, actionable, and encouraging. Use markdown formatting for
         });
         electron_1.ipcMain.on('debug-code', async (event, data) => {
             const { sessionId } = data;
-            console.log(`🐛 [IPC] Code debug requested for session: ${sessionId}`);
-            // Simulate debug analysis
-            setTimeout(() => {
-                console.log(`🐛 [IPC] Debug analysis complete for session: ${sessionId}`);
+            const session = this.sessions.get(sessionId);
+            this.writeLog(`🐛 [IPC] Code debug requested for session: ${sessionId}`);
+            try {
+                // Step 1: Capture screenshot
+                this.writeLog(`🐛 [DEBUG] Starting screen capture for debug...`);
+                const screenshot = await this.captureScreen();
+                this.writeLog(`🐛 [DEBUG] Screen capture completed, size: ${screenshot.length} bytes`);
+                // Step 2: Extract text using OCR
+                this.writeLog(`🐛 [DEBUG] Starting OCR text extraction...`);
+                const ocrText = await this.extractTextFromImage(screenshot);
+                this.writeLog(`🐛 [DEBUG] OCR extraction completed: "${ocrText.substring(0, 100)}..."`);
+                // Step 3: Generate debug analysis using OpenAI
+                let debugAnalysis = '';
+                if (this.openai && session) {
+                    this.writeLog(`🤖 [DEBUG] Using OpenAI for debug analysis (${session.profession} ${session.interviewType})`);
+                    const systemPrompt = `You are an expert code reviewer and debugging assistant specializing in ${session.profession} interviews.
+
+Analyze the following code and provide comprehensive debugging guidance:
+
+CODE: "${ocrText}"
+
+Provide a detailed response that includes:
+1. Code analysis and potential issues
+2. Bug identification and explanations
+3. Suggested fixes with code examples
+4. Best practices and improvements
+5. Testing strategies
+
+Format your response with clear sections and use markdown for better readability. Be specific and actionable.`;
+                    const completion = await this.openai.chat.completions.create({
+                        model: 'gpt-3.5-turbo',
+                        messages: [
+                            { role: 'system', content: systemPrompt },
+                            { role: 'user', content: `Please debug this code: ${ocrText}` }
+                        ],
+                        max_tokens: 1200,
+                        temperature: 0.7
+                    });
+                    debugAnalysis = completion.choices[0].message.content || 'Unable to generate debug analysis';
+                }
+                else {
+                    this.writeLog(`⚠️ [DEBUG] No OpenAI client available, using fallback analysis`);
+                    debugAnalysis = this.generateFallbackDebugAnalysis(ocrText, session?.profession || 'software-engineer');
+                }
+                this.writeLog(`🐛 [IPC] Sending debug result for session ${sessionId}`);
                 event.reply('debug-result', {
                     sessionId,
-                    analysis: 'Debug analysis complete: Found potential null pointer exception on line 15',
+                    text: ocrText,
+                    analysis: debugAnalysis,
                     timestamp: new Date().toISOString()
                 });
-            }, 2000);
+            }
+            catch (error) {
+                this.writeLog(`❌ [DEBUG] Debug processing failed: ${error.message}`);
+                event.reply('debug-result', {
+                    sessionId,
+                    text: 'Debug capture failed',
+                    analysis: 'I encountered an error while capturing and analyzing the code. Please try again or check your system permissions.',
+                    timestamp: new Date().toISOString()
+                });
+            }
         });
         electron_1.ipcMain.on('toggle-recording', async (event, data) => {
             const { sessionId } = data;
             const session = this.sessions.get(sessionId);
-            console.log(`🎤 [IPC] Recording toggle requested for session: ${sessionId}`);
+            this.writeLog(`🎤 [IPC] Recording toggle requested for session: ${sessionId}`);
             if (session) {
-                session.isRecording = !session.isRecording;
-                console.log(`🎤 [IPC] Recording ${session.isRecording ? 'started' : 'stopped'} for session: ${sessionId}`);
-                event.reply('recording-status', {
-                    sessionId,
-                    isRecording: session.isRecording
-                });
+                try {
+                    if (!session.isRecording) {
+                        // Start recording
+                        this.writeLog(`🎤 [IPC] Starting audio recording for session: ${sessionId}`);
+                        // Initialize audio service if not ready
+                        if (!this.audioService.isReady()) {
+                            this.writeLog(`🎤 [IPC] Initializing audio service...`);
+                            await this.audioService.initialize();
+                            this.writeLog(`🎤 [IPC] Audio service initialized`);
+                        }
+                        // Check audio service status
+                        const audioStatus = this.audioService.getStatus();
+                        this.writeLog(`🎤 [IPC] Audio service status: ${JSON.stringify(audioStatus)}`);
+                        // Start recording both interviewer and interviewee audio
+                        this.writeLog(`🎤 [IPC] Calling audioService.startRecording with AudioSource.BOTH`);
+                        await this.audioService.startRecording(types_1.AudioSource.BOTH, sessionId);
+                        session.isRecording = true;
+                        // Start polling for transcriptions
+                        this.writeLog(`🎤 [IPC] Starting transcription polling for session: ${sessionId}`);
+                        this.startTranscriptionPolling(sessionId);
+                        this.writeLog(`🎤 [IPC] Recording started successfully for session: ${sessionId}`);
+                    }
+                    else {
+                        // Stop recording
+                        this.writeLog(`🎤 [IPC] Stopping audio recording for session: ${sessionId}`);
+                        await this.audioService.stopRecording(sessionId);
+                        session.isRecording = false;
+                        this.writeLog(`🎤 [IPC] Recording stopped for session: ${sessionId}`);
+                    }
+                    event.reply('recording-status', {
+                        sessionId,
+                        isRecording: session.isRecording
+                    });
+                }
+                catch (error) {
+                    this.writeLog(`❌ [IPC] Recording toggle failed for session ${sessionId}: ${error.message}`);
+                    this.writeLog(`❌ [IPC] Error stack: ${error.stack}`);
+                    session.isRecording = false;
+                    event.reply('recording-status', {
+                        sessionId,
+                        isRecording: false,
+                        error: error.message
+                    });
+                }
             }
             else {
-                console.log(`⚠️ [IPC] Session not found for recording toggle: ${sessionId}`);
+                this.writeLog(`⚠️ [IPC] Session not found for recording toggle: ${sessionId}`);
             }
         });
         electron_1.ipcMain.on('add-rag-material', async (event, data) => {
             const { sessionId } = data;
-            console.log(`📚 [IPC] RAG material addition requested for session: ${sessionId}`);
-            // Simulate folder dialog and processing
-            setTimeout(() => {
-                console.log(`📚 [IPC] RAG processing complete for session: ${sessionId}`);
+            this.writeLog(`📚 [IPC] RAG material addition requested for session: ${sessionId}`);
+            try {
+                // Show folder selection dialog
+                const result = await electron_1.dialog.showOpenDialog({
+                    title: 'Select Study Materials Folder',
+                    properties: ['openDirectory'],
+                    message: 'Choose a folder containing your study materials (.txt, .md files)'
+                });
+                if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+                    this.writeLog(`📚 [IPC] RAG folder selection cancelled for session: ${sessionId}`);
+                    return;
+                }
+                const folderPath = result.filePaths[0];
+                this.writeLog(`📚 [IPC] Processing RAG materials from: ${folderPath}`);
+                // Check if folder exists and has files
+                if (!fs.existsSync(folderPath)) {
+                    throw new Error('Selected folder does not exist');
+                }
+                const files = fs.readdirSync(folderPath);
+                const supportedFiles = files.filter(file => file.endsWith('.txt') || file.endsWith('.md'));
+                this.writeLog(`📚 [RAG] Found ${supportedFiles.length} supported files in ${folderPath}`);
+                this.writeLog(`📚 [RAG] Supported files: ${supportedFiles.join(', ')}`);
+                if (supportedFiles.length === 0) {
+                    throw new Error('No supported files (.txt, .md) found in the selected folder');
+                }
+                // Process documents using RAG service
+                this.writeLog(`📚 [RAG] Starting document ingestion...`);
+                await this.ragService.ingestDocuments(folderPath, sessionId);
+                // Get knowledge base info
+                const knowledgeBase = this.ragService.getKnowledgeBase(sessionId);
+                const documentCount = knowledgeBase ? knowledgeBase.documents.length : 0;
+                this.writeLog(`📚 [IPC] RAG processing complete for session: ${sessionId}, processed ${documentCount} documents`);
+                // Update session with RAG status
+                const session = this.sessions.get(sessionId);
+                if (session) {
+                    session.hasRAG = true;
+                }
                 event.reply('rag-success', {
                     sessionId,
-                    documentsProcessed: 15,
+                    documentsProcessed: documentCount,
+                    folderPath: folderPath,
                     timestamp: new Date().toISOString()
                 });
-            }, 3000);
+            }
+            catch (error) {
+                this.writeLog(`❌ [RAG] RAG processing failed for session ${sessionId}: ${error.message}`);
+                event.reply('rag-error', {
+                    sessionId,
+                    error: error.message,
+                    timestamp: new Date().toISOString()
+                });
+            }
         });
         electron_1.ipcMain.on('open-settings', () => {
             console.log('⚙️ [IPC] Settings window requested');

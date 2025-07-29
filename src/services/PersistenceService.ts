@@ -166,8 +166,9 @@ export class PersistenceService {
           config.apiKey = this.encryptionService.decrypt(config.apiKey);
           delete config._encrypted;
         } catch (error) {
-          console.error('Failed to decrypt API key:', error);
+          console.warn('Failed to decrypt API key, resetting to empty:', (error as Error).message);
           config.apiKey = '';
+          delete config._encrypted;
         }
       }
       
@@ -176,8 +177,9 @@ export class PersistenceService {
           config.promptLibrary = this.encryptionService.decryptObject(config.promptLibrary);
           delete config._promptsEncrypted;
         } catch (error) {
-          console.error('Failed to decrypt prompt library:', error);
+          console.warn('Failed to decrypt prompt library, resetting to empty:', (error as Error).message);
           config.promptLibrary = {};
+          delete config._promptsEncrypted;
         }
       }
       

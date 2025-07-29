@@ -7,8 +7,8 @@ The Interview Assistant project is now properly configured with a working develo
 ## Key Updates Made
 
 ### Development Environment Configuration
-- ✅ **Kiro Settings**: Added `timeout *` to auto-approved commands for streamlined development workflow
-- ✅ **Command Approval**: Timeout commands now execute without manual approval during development
+- ✅ **Kiro Settings**: Added `timeout *` and `sleep *` to auto-approved commands for streamlined development workflow
+- ✅ **Command Approval**: Timeout and sleep commands now execute without manual approval during development
 
 ### Package Configuration (`package-dev.json`)
 - ✅ **Project Name**: Updated to "interview-assistant" 

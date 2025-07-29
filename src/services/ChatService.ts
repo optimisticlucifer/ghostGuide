@@ -266,11 +266,11 @@ export class ChatService {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await response.json().catch(() => ({})) as any;
         throw new Error(`OpenAI API error: ${response.status} - ${errorData.error?.message || response.statusText}`);
       }
 
-      const data: OpenAIResponse = await response.json();
+      const data = await response.json() as OpenAIResponse;
       
       if (!data.choices || data.choices.length === 0) {
         throw new Error('No response from OpenAI API');

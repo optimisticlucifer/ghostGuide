@@ -2,10 +2,14 @@ import { PromptTemplate, PromptLibrary, ActionType } from '../types';
 import { ConfigurationManager } from './ConfigurationManager';
 
 export class PromptLibraryService {
-  private configurationManager: ConfigurationManager;
+  private configurationManager: ConfigurationManager | null = null;
   private promptCache: Map<string, string> = new Map();
 
-  constructor(configurationManager: ConfigurationManager) {
+  constructor(configurationManager?: ConfigurationManager) {
+    this.configurationManager = configurationManager || null;
+  }
+
+  setConfigurationManager(configurationManager: ConfigurationManager): void {
     this.configurationManager = configurationManager;
   }
 
@@ -21,6 +25,10 @@ export class PromptLibraryService {
     }
 
     try {
+      if (!this.configurationManager) {
+        return this.getFallbackSystemPrompt(profession, interviewType);
+      }
+      
       const promptLibrary = this.configurationManager.getPromptLibrary();
       
       // Get profession-specific prompts

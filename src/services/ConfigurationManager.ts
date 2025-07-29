@@ -94,6 +94,16 @@ export class ConfigurationManager {
   }
 
   /**
+   * Set API key (synchronous version for immediate use)
+   */
+  setApiKey(apiKey: string): void {
+    if (!this.currentConfig) {
+      this.currentConfig = this.getDefaultConfiguration();
+    }
+    this.currentConfig.apiKey = apiKey;
+  }
+
+  /**
    * Update user preferences
    */
   async updateUserPreferences(preferences: Partial<UserPreferences>): Promise<void> {

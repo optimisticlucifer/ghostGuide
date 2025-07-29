@@ -4,6 +4,29 @@ import * as path from 'path';
 import * as os from 'os';
 import { AudioSource } from '../types';
 
+// Import whisper-node
+const whisper = require('whisper-node');
+
+// Custom error types for better error handling
+export class AudioServiceError extends Error {
+  constructor(message: string, public code: string, public cause?: Error) {
+    super(message);
+    this.name = 'AudioServiceError';
+  }
+}
+
+export class AudioDeviceError extends AudioServiceError {
+  constructor(message: string, cause?: Error) {
+    super(message, 'AUDIO_DEVICE_ERROR', cause);
+  }
+}
+
+export class TranscriptionError extends AudioServiceError {
+  constructor(message: string, cause?: Error) {
+    super(message, 'TRANSCRIPTION_ERROR', cause);
+  }
+}
+
 interface AudioRecording {
   sessionId: string;
   source: AudioSource;
@@ -22,6 +45,20 @@ interface AudioSegment {
   duration: number;
   transcription?: string;
 }
+
+// Configuration constants
+const AUDIO_CONFIG = {
+  SEGMENT_DURATION: 5000, // 5 seconds in milliseconds
+  SAMPLE_RATE: 16000,
+  CHANNELS: 1, // Mono
+  CODEC: 'pcm_s16le',
+  TRANSCRIPTION_TIMEOUT: 30000, // 30 seconds
+  MAX_RECENT_TRANSCRIPTIONS: 10,
+  SEGMENT_CLEANUP_DELAY: 60000, // 1 minute
+  MIN_SEGMENT_SIZE: 1000, // 1KB minimum
+  RECOVERY_DELAY: 2000, // 2 seconds
+  RESTART_DELAY: 3000, // 3 seconds
+} as const;
 
 export class AudioService {
   private recordings: Map<string, AudioRecording> = new Map();
@@ -115,12 +152,16 @@ export class AudioService {
    * Start recording audio from specified source
    */
   async startRecording(source: AudioSource, sessionId: string): Promise<void> {
+    console.log(`🎤 [AUDIO] Starting recording for session ${sessionId} with source ${source}`);
+    
     if (!this.isInitialized) {
+      console.error('🎤 [AUDIO] Audio service not initialized');
       throw new Error('Audio service not initialized');
     }
 
     // Stop existing recording for this session if any
     if (this.recordings.has(sessionId)) {
+      console.log(`🎤 [AUDIO] Stopping existing recording for session ${sessionId}`);
       await this.stopRecording(sessionId);
     }
 
@@ -139,18 +180,44 @@ export class AudioService {
       // Configure FFmpeg command based on source
       const ffmpegArgs = this.buildFFmpegArgs(source, outputFile);
       
-      console.log(`Starting audio recording for session ${sessionId} from ${source}`);
-      console.log('FFmpeg command:', 'ffmpeg', ffmpegArgs.join(' '));
+      console.log(`🎤 [AUDIO] Starting audio recording for session ${sessionId} from ${source}`);
+      console.log('🎤 [AUDIO] FFmpeg command:', 'ffmpeg', ffmpegArgs.join(' '));
+      console.log(`🎤 [AUDIO] Output file: ${outputFile}`);
+      console.log(`🎤 [AUDIO] Temp directory: ${this.tempDir}`);
       
       const ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
       recording.process = ffmpegProcess;
       recording.isActive = true;
-      
+
       // Handle process events with enhanced error handling
       ffmpegProcess.stdout.on('data', (data) => {
-        // FFmpeg outputs to stderr, not stdout
+        console.log(`🎤 [AUDIO] FFmpeg stdout: ${data.toString()}`);
       });
       
+      ffmpegProcess.stderr.on('data', (data) => {
+        const output = data.toString();
+        console.log(`🎤 [AUDIO] FFmpeg stderr: ${output}`);
+        
+        if (output.includes('size=') || output.includes('time=')) {
+          // This is normal FFmpeg progress output
+          console.log(`🎤 [AUDIO] Recording progress: ${output.trim()}`);
+        } else if (output.includes('error') || output.includes('Error')) {
+          console.error(`🎤 [AUDIO] FFmpeg error: ${output}`);
+          
+          // Handle specific error types
+          if (output.includes('Device or resource busy')) {
+            console.error('🎤 [AUDIO] Audio device is busy, attempting recovery...');
+            this.handleDeviceBusyError(sessionId);
+          } else if (output.includes('No such device')) {
+            console.error('🎤 [AUDIO] Audio device not found, checking available devices...');
+            this.handleDeviceNotFoundError(sessionId);
+          } else if (output.includes('Invalid data found')) {
+            console.error('🎤 [AUDIO] Invalid audio data - check audio device configuration');
+          }
+        } else {
+          console.log(`🎤 [AUDIO] FFmpeg info: ${output.trim()}`);
+        }
+      });
       ffmpegProcess.stderr.on('data', (data) => {
         const output = data.toString();
         if (output.includes('size=') || output.includes('time=')) {
@@ -170,18 +237,18 @@ export class AudioService {
       });
       
       ffmpegProcess.on('close', (code) => {
-        console.log(`Recording process closed with code ${code}`);
+        console.log(`🎤 [AUDIO] Recording process closed with code ${code} for session ${sessionId}`);
         recording.isActive = false;
         
         // Handle unexpected closures
         if (code !== 0 && recording.isActive) {
-          console.warn(`Recording process exited unexpectedly with code ${code}`);
+          console.warn(`🎤 [AUDIO] Recording process exited unexpectedly with code ${code}`);
           this.handleUnexpectedExit(sessionId, code);
         }
       });
       
       ffmpegProcess.on('error', (error) => {
-        console.error('Recording process error:', error);
+        console.error(`🎤 [AUDIO] Recording process error for session ${sessionId}:`, error);
         recording.isActive = false;
         
         // Attempt recovery based on error type
@@ -226,10 +293,78 @@ export class AudioService {
       
       recording.isActive = false;
       console.log(`Audio recording stopped for session: ${sessionId}`);
+      
+      // Process the recorded audio for transcription
+      if (recording.outputFile && fs.existsSync(recording.outputFile)) {
+        console.log(`🎤 [AUDIO] Processing recorded audio for transcription: ${recording.outputFile}`);
+        await this.processRecordedAudio(sessionId, recording.outputFile);
+      } else {
+        console.warn(`🎤 [AUDIO] No audio file found for transcription: ${recording.outputFile}`);
+      }
+      
     } catch (error) {
       console.error('Error stopping recording:', error);
     } finally {
       this.recordings.delete(sessionId);
+    }
+  }
+
+  /**
+   * Process recorded audio file for transcription
+   */
+  private async processRecordedAudio(sessionId: string, audioFile: string): Promise<void> {
+    try {
+      console.log(`🎤 [AUDIO] Starting transcription for session ${sessionId}`);
+      
+      // Check if file exists and has content
+      const stats = fs.statSync(audioFile);
+      if (stats.size === 0) {
+        console.warn(`🎤 [AUDIO] Audio file is empty, skipping transcription`);
+        return;
+      }
+      
+      console.log(`🎤 [AUDIO] Audio file size: ${stats.size} bytes`);
+      
+      // Transcribe the audio
+      const transcription = await this.transcribeAudioSegment(audioFile);
+      
+      if (transcription && transcription.trim()) {
+        console.log(`🎤 [AUDIO] Transcription result: "${transcription}"`);
+        
+        // Send transcription to chat via IPC
+        const { BrowserWindow } = require('electron');
+        const sessionWindow = BrowserWindow.getAllWindows().find(win => {
+          try {
+            return win.getTitle().includes(sessionId) || win.webContents.getURL().includes(sessionId);
+          } catch (e) {
+            return false;
+          }
+        });
+        
+        if (sessionWindow) {
+          sessionWindow.webContents.send('audio-transcription', {
+            sessionId,
+            transcription,
+            timestamp: new Date().toISOString()
+          });
+          console.log(`🎤 [AUDIO] Sent transcription to session window`);
+        } else {
+          console.warn(`🎤 [AUDIO] No session window found for ${sessionId}`);
+        }
+      } else {
+        console.warn(`🎤 [AUDIO] No transcription result or empty transcription`);
+      }
+      
+      // Clean up the audio file
+      try {
+        fs.unlinkSync(audioFile);
+        console.log(`🎤 [AUDIO] Cleaned up audio file: ${audioFile}`);
+      } catch (cleanupError) {
+        console.warn(`🎤 [AUDIO] Failed to clean up audio file: ${cleanupError}`);
+      }
+      
+    } catch (error) {
+      console.error(`🎤 [AUDIO] Error processing recorded audio:`, error);
     }
   }
 
@@ -332,29 +467,102 @@ export class AudioService {
    * Extract audio segment from main recording
    */
   private async extractAudioSegment(inputFile: string, outputFile: string, duration: number): Promise<void> {
+    const MILLISECONDS_TO_SECONDS = 1000;
+    const durationSeconds = duration / MILLISECONDS_TO_SECONDS;
+    
+    try {
+      // Get the total duration of the input file
+      const totalDuration = await this.getAudioDuration(inputFile);
+      
+      // Calculate start time for last N seconds
+      const startTime = Math.max(0, totalDuration - durationSeconds);
+      
+      // Extract the audio segment
+      await this.runFfmpegExtraction(inputFile, outputFile, startTime, durationSeconds);
+    } catch (error) {
+      throw new Error(`Audio segment extraction failed: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Get the duration of an audio file using ffprobe
+   */
+  private async getAudioDuration(inputFile: string): Promise<number> {
     return new Promise((resolve, reject) => {
-      const durationSeconds = duration / 1000;
+      const probeFfmpeg = spawn('ffprobe', [
+        '-v', 'quiet',
+        '-show_entries', 'format=duration',
+        '-of', 'csv=p=0',
+        inputFile
+      ]);
+      
+      let durationOutput = '';
+      
+      probeFfmpeg.stdout.on('data', (data) => {
+        durationOutput += data.toString();
+      });
+      
+      probeFfmpeg.stderr.on('data', (data) => {
+        console.warn(`FFprobe stderr: ${data.toString()}`);
+      });
+      
+      probeFfmpeg.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`FFprobe failed with exit code ${code}`));
+          return;
+        }
+        
+        const duration = parseFloat(durationOutput.trim());
+        if (isNaN(duration) || duration <= 0) {
+          reject(new Error(`Invalid audio duration: ${durationOutput.trim()}`));
+          return;
+        }
+        
+        resolve(duration);
+      });
+      
+      probeFfmpeg.on('error', (error) => {
+        reject(new Error(`FFprobe process error: ${error.message}`));
+      });
+    });
+  }
+
+  /**
+   * Run ffmpeg to extract audio segment
+   */
+  private async runFfmpegExtraction(
+    inputFile: string, 
+    outputFile: string, 
+    startTime: number, 
+    duration: number
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
       const ffmpegArgs = [
-        '-y',
+        '-y', // Overwrite output file
         '-i', inputFile,
-        '-ss', `-${durationSeconds}`, // Last N seconds
-        '-t', durationSeconds.toString(),
-        '-acodec', 'copy',
+        '-ss', startTime.toString(),
+        '-t', duration.toString(),
+        '-acodec', 'copy', // Copy audio codec without re-encoding
         outputFile
       ];
       
       const ffmpeg = spawn('ffmpeg', ffmpegArgs);
       
+      ffmpeg.stderr.on('data', (data) => {
+        // FFmpeg outputs progress info to stderr, which is normal
+        console.debug(`FFmpeg: ${data.toString()}`);
+      });
+      
       ffmpeg.on('close', (code) => {
         if (code === 0) {
           resolve();
         } else {
-          reject(new Error(`FFmpeg segment extraction failed with code ${code}`));
+          reject(new Error(`FFmpeg extraction failed with exit code ${code}`));
         }
       });
       
       ffmpeg.on('error', (error) => {
-        reject(error);
+        reject(new Error(`FFmpeg process error: ${error.message}`));
       });
     });
   }
@@ -405,78 +613,80 @@ export class AudioService {
   }
 
   /**
-   * Transcribe audio segment using Whisper
+   * Transcribe audio segment using whisper-node
    */
   private async transcribeAudioSegment(audioFilePath: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      try {
-        // Use whisper command line tool for transcription
-        const whisperArgs = [
-          audioFilePath,
-          '--model', 'base',
-          '--output_format', 'txt',
-          '--output_dir', this.tempDir,
-          '--language', 'en',
-          '--task', 'transcribe'
-        ];
-        
-        console.log('Running Whisper transcription:', 'whisper', whisperArgs.join(' '));
-        
-        const whisperProcess = spawn('whisper', whisperArgs);
-        
-        let output = '';
-        let errorOutput = '';
-        
-        whisperProcess.stdout.on('data', (data) => {
-          output += data.toString();
-        });
-        
-        whisperProcess.stderr.on('data', (data) => {
-          errorOutput += data.toString();
-        });
-        
-        whisperProcess.on('close', (code) => {
-          if (code === 0) {
-            // Read transcription result from output file
-            const baseName = path.basename(audioFilePath, path.extname(audioFilePath));
-            const transcriptionFile = path.join(this.tempDir, `${baseName}.txt`);
-            
-            if (fs.existsSync(transcriptionFile)) {
-              const transcription = fs.readFileSync(transcriptionFile, 'utf8').trim();
-              
-              // Clean up transcription file
-              fs.unlinkSync(transcriptionFile);
-              
-              resolve(transcription);
-            } else {
-              console.warn('Transcription file not found:', transcriptionFile);
-              resolve('');
-            }
-          } else {
-            console.error('Whisper transcription failed:', errorOutput);
-            resolve(''); // Don't reject, just return empty string
-          }
-        });
-        
-        whisperProcess.on('error', (error) => {
-          console.error('Whisper process error:', error);
-          resolve(''); // Don't reject, just return empty string
-        });
-        
-        // Set timeout for transcription (30 seconds max)
-        setTimeout(() => {
-          if (!whisperProcess.killed) {
-            whisperProcess.kill('SIGTERM');
-            console.warn('Whisper transcription timed out');
-            resolve('');
-          }
-        }, 30000);
-        
-      } catch (error) {
-        console.error('Failed to start Whisper transcription:', error);
-        resolve('');
+    try {
+      console.log(`🎤 [WHISPER] Starting transcription for: ${audioFilePath}`);
+      
+      // Check if file exists and has content
+      if (!fs.existsSync(audioFilePath)) {
+        console.warn(`🎤 [WHISPER] Audio file not found: ${audioFilePath}`);
+        return '';
       }
-    });
+      
+      const stats = fs.statSync(audioFilePath);
+      console.log(`🎤 [WHISPER] Audio file size: ${stats.size} bytes`);
+      
+      if (stats.size < 1000) { // Less than 1KB
+        console.log(`🎤 [WHISPER] Audio file too small, skipping transcription`);
+        return '';
+      }
+      
+      // Use whisper-node for transcription
+      const options = {
+        modelName: "base.en",
+        whisperOptions: {
+          language: 'auto',
+          word_timestamps: false,
+          gen_file_txt: false,
+          gen_file_subtitle: false,
+          gen_file_vtt: false
+        }
+      };
+      
+      console.log(`🎤 [WHISPER] Transcribing with options:`, options);
+      
+      const transcript = await whisper(audioFilePath, options);
+      
+      if (transcript && transcript.length > 0) {
+        // Extract speech text from transcript array
+        const speechText = transcript.map((segment: any) => segment.speech).join(' ').trim();
+        console.log(`🎤 [WHISPER] Transcription successful: "${speechText}"`);
+        return speechText;
+      } else {
+        console.log(`🎤 [WHISPER] No transcription result`);
+        return '';
+      }
+      
+    } catch (error) {
+      console.error(`🎤 [WHISPER] Transcription failed:`, error);
+      
+      // Check if it's a model download issue
+      if ((error as Error).message.includes('model')) {
+        console.log(`🎤 [WHISPER] Attempting to download base.en model...`);
+        try {
+          // Try with a different model or let whisper-node handle model download
+          const transcript = await whisper(audioFilePath, {
+            modelName: "tiny.en",
+            whisperOptions: {
+              language: 'en',
+              word_timestamps: false
+            }
+          });
+          
+          if (transcript && transcript.length > 0) {
+            const speechText = transcript.map((segment: any) => segment.speech).join(' ').trim();
+            console.log(`🎤 [WHISPER] Transcription successful with tiny model: "${speechText}"`);
+            return speechText;
+          }
+        } catch (retryError) {
+          console.error(`🎤 [WHISPER] Retry with tiny model also failed:`, retryError);
+        }
+      }
+      
+      return '';
+    }
   }
 
   /**

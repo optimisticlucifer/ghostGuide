@@ -39,9 +39,27 @@ export class EncryptionService {
         // Generate new key
         await this.generateMasterKey(password);
       }
+      
+      console.log('✅ [ENCRYPTION] Encryption service initialized successfully');
     } catch (error) {
-      console.error('Failed to initialize encryption key:', error);
-      throw new Error('Encryption initialization failed');
+      console.error('❌ [ENCRYPTION] Failed to initialize encryption key:', error);
+      
+      // Try to recover by generating a fresh key
+      try {
+        console.log('🔄 [ENCRYPTION] Attempting to recover with fresh key...');
+        
+        // Delete corrupted key file if it exists
+        if (fs.existsSync(this.keyPath)) {
+          fs.unlinkSync(this.keyPath);
+        }
+        
+        // Generate fresh key
+        await this.generateMasterKey(password);
+        console.log('✅ [ENCRYPTION] Encryption service recovered with fresh key');
+      } catch (recoveryError) {
+        console.error('❌ [ENCRYPTION] Recovery failed:', recoveryError);
+        throw new Error('Encryption initialization failed');
+      }
     }
   }
 
@@ -72,9 +90,14 @@ export class EncryptionService {
         const salt = crypto.randomBytes(this.saltLength);
         const derivedKey = crypto.pbkdf2Sync(defaultPassword, salt, this.iterations, this.keyLength, 'sha256');
         
-        const cipher = crypto.createCipher('aes-256-cbc', derivedKey);
-        let encrypted = cipher.update(this.masterKey, null, 'base64');
+        const iv = crypto.randomBytes(16);
+        const cipher = crypto.createCipheriv('aes-256-cbc', derivedKey, iv);
+        let encrypted = cipher.update(this.masterKey).toString('base64');
         encrypted += cipher.final('base64');
+        
+        // Prepend IV to encrypted data
+        const ivBase64 = iv.toString('base64');
+        encrypted = ivBase64 + ':' + encrypted;
         
         const keyData = {
           encryptedKey: encrypted,
@@ -108,10 +131,30 @@ export class EncryptionService {
         const derivedKey = crypto.pbkdf2Sync(defaultPassword, salt, keyData.iterations, this.keyLength, 'sha256');
         
         if (keyData.encryptedKey) {
-          const decipher = crypto.createDecipher('aes-256-cbc', derivedKey);
-          let decrypted = decipher.update(keyData.encryptedKey, 'base64', null);
-          decrypted = Buffer.concat([decrypted, decipher.final()]);
-          this.masterKey = decrypted;
+          try {
+            // Handle both old format (without IV) and new format (with IV)
+            if (keyData.encryptedKey.includes(':')) {
+              // New format with IV
+              const [ivBase64, encrypted] = keyData.encryptedKey.split(':');
+              const iv = Buffer.from(ivBase64, 'base64');
+              const decipher = crypto.createDecipheriv('aes-256-cbc', derivedKey, iv);
+              let decrypted = decipher.update(encrypted, 'base64');
+              const final = decipher.final();
+              this.masterKey = Buffer.concat([decrypted, final]);
+            } else {
+              // Old format without IV - for backward compatibility
+              const decipher = crypto.createDecipher('aes-256-cbc', derivedKey);
+              let decrypted = decipher.update(keyData.encryptedKey, 'base64');
+              const final = decipher.final();
+              this.masterKey = Buffer.concat([decrypted, final]);
+            }
+          } catch (decryptError) {
+            console.warn('Failed to decrypt existing key, generating new one:', (decryptError as Error).message);
+            // Generate new key if decryption fails
+            this.masterKey = derivedKey;
+            // Save the new key by regenerating the key file
+            await this.generateMasterKey();
+          }
         } else {
           this.masterKey = derivedKey;
         }
@@ -131,22 +174,15 @@ export class EncryptionService {
     }
 
     try {
-      const iv = crypto.randomBytes(this.ivLength);
-      const cipher = crypto.createCipherGCM(this.algorithm, this.masterKey, iv);
-      
+      // Use modern crypto with IV
+      const iv = crypto.randomBytes(16);
+      const cipher = crypto.createCipheriv('aes-256-cbc', this.masterKey, iv);
       let encrypted = cipher.update(data, 'utf8', 'base64');
       encrypted += cipher.final('base64');
       
-      const tag = cipher.getAuthTag();
-      
-      // Combine IV, tag, and encrypted data
-      const result = {
-        iv: iv.toString('base64'),
-        tag: tag.toString('base64'),
-        data: encrypted
-      };
-      
-      return Buffer.from(JSON.stringify(result)).toString('base64');
+      // Prepend IV to encrypted data
+      const ivBase64 = iv.toString('base64');
+      return ivBase64 + ':' + encrypted;
     } catch (error) {
       console.error('Encryption failed:', error);
       throw new Error('Failed to encrypt data');
@@ -161,22 +197,30 @@ export class EncryptionService {
       throw new Error('Encryption key not initialized');
     }
 
+    // Try new format first, then fall back to old format
     try {
-      const combined = JSON.parse(Buffer.from(encryptedData, 'base64').toString('utf8'));
-      const iv = Buffer.from(combined.iv, 'base64');
-      const tag = Buffer.from(combined.tag, 'base64');
-      const data = combined.data;
-      
-      const decipher = crypto.createDecipherGCM(this.algorithm, this.masterKey, iv);
-      decipher.setAuthTag(tag);
-      
-      let decrypted = decipher.update(data, 'base64', 'utf8');
+      if (encryptedData.includes(':')) {
+        // New format with IV
+        const [ivBase64, encrypted] = encryptedData.split(':');
+        const iv = Buffer.from(ivBase64, 'base64');
+        const decipher = crypto.createDecipheriv('aes-256-cbc', this.masterKey, iv);
+        let decrypted = decipher.update(encrypted, 'base64', 'utf8');
+        decrypted += decipher.final('utf8');
+        return decrypted;
+      }
+    } catch (newFormatError) {
+      console.warn('New format decryption failed, trying old format:', (newFormatError as Error).message);
+    }
+
+    // Try old format as fallback
+    try {
+      const decipher = crypto.createDecipher('aes-256-cbc', this.masterKey);
+      let decrypted = decipher.update(encryptedData, 'base64', 'utf8');
       decrypted += decipher.final('utf8');
-      
       return decrypted;
-    } catch (error) {
-      console.error('Decryption failed:', error);
-      throw new Error('Failed to decrypt data');
+    } catch (oldFormatError) {
+      console.error('Both decryption formats failed:', (oldFormatError as Error).message);
+      throw new Error('Failed to decrypt data - data may be corrupted');
     }
   }
 
