@@ -13,4 +13,5 @@ var AudioSource;
     AudioSource["INTERVIEWER"] = "internal";
     AudioSource["INTERVIEWEE"] = "microphone";
     AudioSource["BOTH"] = "both";
+    AudioSource["SYSTEM"] = "system";
 })(AudioSource || (exports.AudioSource = AudioSource = {}));

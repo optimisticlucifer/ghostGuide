@@ -4,8 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { AudioSource } from '../types';
 
-// Import whisper-node
-const whisper = require('whisper-node');
+// Whisper transcription will be handled via whisper.cpp CLI invocation
 
 // Custom error types for better error handling
 export class AudioServiceError extends Error {
@@ -58,6 +57,8 @@ const AUDIO_CONFIG = {
   MIN_SEGMENT_SIZE: 1000, // 1KB minimum
   RECOVERY_DELAY: 2000, // 2 seconds
   RESTART_DELAY: 3000, // 3 seconds
+  WHISPER_EXECUTABLE: 'whisper-cli', // name of whisper-cli binary in PATH
+  MODEL_PATH: '/Users/rohanbharti/tools/ggml-large-v3-turbo.bin' // default model path
 } as const;
 
 export class AudioService {
@@ -103,7 +104,24 @@ export class AudioService {
       ffmpeg.on('close', (code) => {
         if (code === 0) {
           console.log('FFmpeg is available');
-          resolve();
+          // Check whisper executable
+          const whisperProc = spawn(AUDIO_CONFIG.WHISPER_EXECUTABLE, ['--help']);
+          whisperProc.on('close', (wCode) => {
+            if (wCode === 0) {
+              console.log('whisper-cli binary available');
+              // Check model path
+              if (!fs.existsSync(AUDIO_CONFIG.MODEL_PATH)) {
+                reject(new Error(`Whisper model not found at ${AUDIO_CONFIG.MODEL_PATH}`));
+              } else {
+                resolve();
+              }
+            } else {
+              reject(new Error('whisper-cli binary not found or not executable'));
+            }
+          });
+          whisperProc.on('error', (err) => {
+            reject(new Error(`whisper-cli check failed: ${err.message}`));
+          });
         } else {
           reject(new Error('FFmpeg is not installed or not in PATH'));
         }
@@ -270,22 +288,17 @@ export class AudioService {
   /**
    * Stop recording for a session
    */
-  async stopRecording(sessionId: string): Promise<void> {
+  async stopRecording(sessionId: string): Promise<string | null> {
     const recording = this.recordings.get(sessionId);
     if (!recording) {
       console.warn(`No active recording found for session: ${sessionId}`);
-      return;
+      return null;
     }
 
     try {
       if (recording.process && recording.isActive) {
-        // Send SIGTERM to gracefully stop FFmpeg
         recording.process.kill('SIGTERM');
-        
-        // Wait a bit for graceful shutdown
         await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Force kill if still running
         if (!recording.process.killed) {
           recording.process.kill('SIGKILL');
         }
@@ -294,16 +307,18 @@ export class AudioService {
       recording.isActive = false;
       console.log(`Audio recording stopped for session: ${sessionId}`);
       
-      // Process the recorded audio for transcription
       if (recording.outputFile && fs.existsSync(recording.outputFile)) {
         console.log(`🎤 [AUDIO] Processing recorded audio for transcription: ${recording.outputFile}`);
-        await this.processRecordedAudio(sessionId, recording.outputFile);
+        const transcription = await this.processRecordedAudio(sessionId, recording.outputFile);
+        return transcription;
       } else {
         console.warn(`🎤 [AUDIO] No audio file found for transcription: ${recording.outputFile}`);
+        return null;
       }
       
     } catch (error) {
       console.error('Error stopping recording:', error);
+      return null;
     } finally {
       this.recordings.delete(sessionId);
     }
@@ -312,59 +327,39 @@ export class AudioService {
   /**
    * Process recorded audio file for transcription
    */
-  private async processRecordedAudio(sessionId: string, audioFile: string): Promise<void> {
+  private async processRecordedAudio(sessionId: string, audioFile: string): Promise<string | null> {
     try {
       console.log(`🎤 [AUDIO] Starting transcription for session ${sessionId}`);
       
-      // Check if file exists and has content
       const stats = fs.statSync(audioFile);
       if (stats.size === 0) {
         console.warn(`🎤 [AUDIO] Audio file is empty, skipping transcription`);
-        return;
+        return null;
       }
       
       console.log(`🎤 [AUDIO] Audio file size: ${stats.size} bytes`);
       
-      // Transcribe the audio
       const transcription = await this.transcribeAudioSegment(audioFile);
       
       if (transcription && transcription.trim()) {
-        console.log(`🎤 [AUDIO] Transcription result: "${transcription}"`);
-        
-        // Send transcription to chat via IPC
-        const { BrowserWindow } = require('electron');
-        const sessionWindow = BrowserWindow.getAllWindows().find(win => {
-          try {
-            return win.getTitle().includes(sessionId) || win.webContents.getURL().includes(sessionId);
-          } catch (e) {
-            return false;
-          }
-        });
-        
-        if (sessionWindow) {
-          sessionWindow.webContents.send('audio-transcription', {
-            sessionId,
-            transcription,
-            timestamp: new Date().toISOString()
-          });
-          console.log(`🎤 [AUDIO] Sent transcription to session window`);
-        } else {
-          console.warn(`🎤 [AUDIO] No session window found for ${sessionId}`);
-        }
+        console.log(`🎤 [AUDIO] ✅ Transcription result: \"${transcription}\"`);
+        return transcription;
       } else {
         console.warn(`🎤 [AUDIO] No transcription result or empty transcription`);
+        return null;
       }
-      
-      // Clean up the audio file
-      try {
-        fs.unlinkSync(audioFile);
-        console.log(`🎤 [AUDIO] Cleaned up audio file: ${audioFile}`);
-      } catch (cleanupError) {
-        console.warn(`🎤 [AUDIO] Failed to clean up audio file: ${cleanupError}`);
-      }
-      
     } catch (error) {
       console.error(`🎤 [AUDIO] Error processing recorded audio:`, error);
+      return null;
+    } finally {
+      // Keep audio file for debugging purposes
+      // try {
+      //   fs.unlinkSync(audioFile);
+      //   console.log(`🎤 [AUDIO] Cleaned up audio file: ${audioFile}`);
+      // } catch (cleanupError) {
+      //   console.warn(`🎤 [AUDIO] Failed to clean up audio file: ${cleanupError}`);
+      // }
+      console.log(`🎤 [AUDIO] DEBUG: Preserving audio file for inspection: ${audioFile}`);
     }
   }
 
@@ -375,12 +370,12 @@ export class AudioService {
     const baseArgs = ['-y']; // Overwrite output file
     
     switch (source) {
-      case AudioSource.INTERVIEWER:
-        // Internal audio capture via BlackHole
+      case AudioSource.SYSTEM:
+        // System audio capture via BlackHole
         return [
           ...baseArgs,
           '-f', 'avfoundation',
-          '-i', ':BlackHole 2ch', // Audio input from BlackHole
+          '-i', ':0', // BlackHole 2ch
           '-ac', '1', // Mono
           '-ar', '16000', // 16kHz sample rate
           '-acodec', 'pcm_s16le',
@@ -392,7 +387,7 @@ export class AudioService {
         return [
           ...baseArgs,
           '-f', 'avfoundation',
-          '-i', ':0', // Default microphone
+          '-i', ':2', // MacBook Pro Microphone
           '-ac', '1', // Mono
           '-ar', '16000', // 16kHz sample rate
           '-acodec', 'pcm_s16le',
@@ -400,15 +395,12 @@ export class AudioService {
         ];
         
       case AudioSource.BOTH:
-        // Both internal and microphone audio
+        // Both internal and microphone audio (DEBUG: Forcing microphone only to isolate issues)
+        console.warn('🎤 [AUDIO] DEBUG: Capturing from MacBook Pro microphone only for debugging');
         return [
           ...baseArgs,
           '-f', 'avfoundation',
-          '-i', ':BlackHole 2ch',
-          '-f', 'avfoundation',
-          '-i', ':0',
-          '-filter_complex', '[0:a][1:a]amix=inputs=2[out]',
-          '-map', '[out]',
+          '-i', ':2', // MacBook Pro Microphone
           '-ac', '1', // Mono
           '-ar', '16000', // 16kHz sample rate
           '-acodec', 'pcm_s16le',
@@ -592,10 +584,13 @@ export class AudioService {
       if (transcription && transcription.trim().length > 0) {
         segment.transcription = transcription;
         
-        // Emit transcription event to main process for UI update
+        // 1. IMMEDIATELY print full transcription to console
+        console.log(`🎤 [SEGMENT TRANSCRIPTION COMPLETED] Session ${sessionId}, Segment ${segment.id}: "${transcription}"`);
+        
+        // 2. Emit transcription event to main process for UI update and LLM processing
         this.emitTranscriptionEvent(sessionId, transcription, segment);
         
-        console.log(`Transcription completed for segment ${segment.id}: ${transcription.substring(0, 50)}...`);
+        console.log(`✅ Transcription completed for segment ${segment.id}: ${transcription.substring(0, 50)}...`);
       } else {
         console.log(`No transcription result for segment ${segment.id}`);
       }
@@ -613,7 +608,7 @@ export class AudioService {
   }
 
   /**
-   * Transcribe audio segment using whisper-node
+   * Transcribe audio segment using whisper.cpp CLI
    */
   private async transcribeAudioSegment(audioFilePath: string): Promise<string> {
     try {
@@ -633,57 +628,77 @@ export class AudioService {
         return '';
       }
       
-      // Use whisper-node for transcription
-      const options = {
-        modelName: "base.en",
-        whisperOptions: {
-          language: 'auto',
-          word_timestamps: false,
-          gen_file_txt: false,
-          gen_file_subtitle: false,
-          gen_file_vtt: false
-        }
-      };
-      
-      console.log(`🎤 [WHISPER] Transcribing with options:`, options);
-      
-      const transcript = await whisper(audioFilePath, options);
-      
-      if (transcript && transcript.length > 0) {
-        // Extract speech text from transcript array
-        const speechText = transcript.map((segment: any) => segment.speech).join(' ').trim();
-        console.log(`🎤 [WHISPER] Transcription successful: "${speechText}"`);
-        return speechText;
+      // Invoke whisper-cli for transcription
+      const whisperArgs = [
+        '--model', AUDIO_CONFIG.MODEL_PATH,
+        '--output-txt',
+        '--no-prints',
+        '--language', 'auto',
+        '--print-colors', 'false',
+        audioFilePath  // Input file comes last
+      ];
+
+      console.log(`🎤 [WHISPER] Running whisper-cli with args:`, whisperArgs.join(' '));
+
+      const transcriptText: string = await new Promise((resolve, reject) => {
+        const proc = spawn(AUDIO_CONFIG.WHISPER_EXECUTABLE, whisperArgs);
+
+        let stdout = '';
+        let stderr = '';
+
+        proc.stdout.on('data', (data) => {
+          stdout += data.toString();
+        });
+
+        proc.stderr.on('data', (data) => {
+          stderr += data.toString();
+        });
+
+        proc.on('error', (err) => {
+          reject(new Error(`Failed to start whisper-cli: ${err.message}`));
+        });
+
+        proc.on('close', (code) => {
+          if (code !== 0) {
+            console.error(`🎤 [WHISPER] whisper-cli exited with code ${code}: ${stderr}`);
+            return reject(new Error(`whisper-cli exited with code ${code}`));
+          }
+
+          let textOut = stdout.trim();
+          // whisper-cli with --output-txt creates a .txt file with the same name as input
+          const txtPath = audioFilePath.replace(/\.[^/.]+$/, '.txt'); // Replace extension with .txt
+          
+          if (!textOut && fs.existsSync(txtPath)) {
+            try {
+              textOut = fs.readFileSync(txtPath, 'utf8').trim();
+              console.log(`🎤 [WHISPER] Read transcription from file: ${txtPath}`);
+              
+              // Clean up the generated .txt file
+              fs.unlinkSync(txtPath);
+            } catch (err) {
+              console.warn(`🎤 [WHISPER] Failed to read transcription file: ${err}`);
+            }
+          }
+          
+          resolve(textOut);
+        });
+      });
+
+      if (transcriptText && transcriptText.length > 0) {
+        // Clean up transcription by removing timestamps and extra formatting
+        const cleanedText = this.cleanTranscriptionText(transcriptText);
+        
+        // IMMEDIATELY print transcription result to console
+        console.log(`🎤 [WHISPER] ✅ TRANSCRIPTION SUCCESSFUL: "${cleanedText}"`);
+        console.log(`🎤 [WHISPER] Full transcription result: "${cleanedText}"`);
+        return cleanedText;
       } else {
-        console.log(`🎤 [WHISPER] No transcription result`);
+        console.log('🎤 [WHISPER] ❌ No transcription result');
         return '';
       }
       
     } catch (error) {
       console.error(`🎤 [WHISPER] Transcription failed:`, error);
-      
-      // Check if it's a model download issue
-      if ((error as Error).message.includes('model')) {
-        console.log(`🎤 [WHISPER] Attempting to download base.en model...`);
-        try {
-          // Try with a different model or let whisper-node handle model download
-          const transcript = await whisper(audioFilePath, {
-            modelName: "tiny.en",
-            whisperOptions: {
-              language: 'en',
-              word_timestamps: false
-            }
-          });
-          
-          if (transcript && transcript.length > 0) {
-            const speechText = transcript.map((segment: any) => segment.speech).join(' ').trim();
-            console.log(`🎤 [WHISPER] Transcription successful with tiny model: "${speechText}"`);
-            return speechText;
-          }
-        } catch (retryError) {
-          console.error(`🎤 [WHISPER] Retry with tiny model also failed:`, retryError);
-        }
-      }
       
       return '';
     }
@@ -929,6 +944,22 @@ export class AudioService {
     return recoverableErrors.some(errorCode => 
       error.message.includes(errorCode) || error.name === errorCode
     );
+  }
+
+  /**
+   * Clean transcription text by removing timestamps and formatting
+   */
+  private cleanTranscriptionText(text: string): string {
+    // Remove timestamp patterns like [00:00:00.000 --> 00:00:02.000]
+    let cleaned = text.replace(/\[\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}\]/g, '');
+    
+    // Remove extra whitespace and trim
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+    
+    // Remove leading/trailing quotes if present
+    cleaned = cleaned.replace(/^["']|["']$/g, '');
+    
+    return cleaned;
   }
 
   /**

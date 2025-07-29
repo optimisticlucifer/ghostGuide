@@ -39,7 +39,8 @@ export enum ActionType {
 export enum AudioSource {
   INTERVIEWER = 'internal',
   INTERVIEWEE = 'microphone',
-  BOTH = 'both'
+  BOTH = 'both',
+  SYSTEM = 'system'
 }
 
 export interface AppConfig {

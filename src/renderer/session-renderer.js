@@ -26,6 +26,7 @@ class SessionWindowRenderer {
     this.recordInterviewerBtn = document.getElementById('recordInterviewer');
     this.recordIntervieweeBtn = document.getElementById('recordInterviewee');
     this.recordBothBtn = document.getElementById('recordBoth');
+    this.recordSystemBtn = document.getElementById('recordSystem');
     this.addRAGBtn = document.getElementById('addRAG');
     this.closeBtn = document.getElementById('close');
     
@@ -50,6 +51,7 @@ class SessionWindowRenderer {
     this.recordInterviewerBtn.addEventListener('click', () => this.toggleRecording('interviewer'));
     this.recordIntervieweeBtn.addEventListener('click', () => this.toggleRecording('interviewee'));
     this.recordBothBtn.addEventListener('click', () => this.toggleRecording('both'));
+    this.recordSystemBtn.addEventListener('click', () => this.toggleRecording('system'));
     this.addRAGBtn.addEventListener('click', () => this.addRAGMaterial());
     this.closeBtn.addEventListener('click', () => this.closeSession());
     
@@ -230,7 +232,7 @@ class SessionWindowRenderer {
     this.currentRecordingSource = source;
     
     // Update button states
-    [this.recordInterviewerBtn, this.recordIntervieweeBtn, this.recordBothBtn].forEach(btn => {
+    [this.recordInterviewerBtn, this.recordIntervieweeBtn, this.recordBothBtn, this.recordSystemBtn].forEach(btn => {
       btn.classList.remove('active');
     });
     
@@ -241,6 +243,7 @@ class SessionWindowRenderer {
       if (source === 'interviewer') this.recordInterviewerBtn.classList.add('active');
       else if (source === 'interviewee') this.recordIntervieweeBtn.classList.add('active');
       else if (source === 'both') this.recordBothBtn.classList.add('active');
+      else if (source === 'system') this.recordSystemBtn.classList.add('active');
     } else {
       this.recordingIndicator.classList.remove('active');
     }

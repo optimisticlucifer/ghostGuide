@@ -1678,6 +1678,56 @@ Format your response with clear sections and use markdown for better readability
             }
         });
 
+        // Add event listener for audio transcription results
+        ipcMain.on('transcription-ready', async (event, data) => {
+            const { sessionId, transcription } = data;
+            const session = this.sessions.get(sessionId);
+            
+            console.log(`🎤 [TRANSCRIPTION] Processing transcription for session ${sessionId}: "${transcription}"`);
+            
+            try {
+                let aiResponse = '';
+
+                if (this.openai && session && this.chatService) {
+                    console.log(`🤖 [OPENAI] Using ChatService to process audio transcription for ${session.profession} ${session.interviewType}`);
+
+                    // Process transcription through ChatService with proper context
+                    aiResponse = await this.chatService.processTranscript(sessionId, transcription, AudioSource.BOTH);
+                    console.log(`🤖 [OPENAI] Generated transcription response for session ${sessionId}`);
+                } else {
+                    console.log(`⚠️ [OPENAI] No API key or session found, using fallback response`);
+                    aiResponse = `I heard: "${transcription}". This seems like a good point! (Configure your OpenAI API key in Settings for AI-powered coaching)`;
+                }
+
+                // Send transcription result to the session window
+                const sessionWindow = this.sessionWindows.get(sessionId);
+                if (sessionWindow && !sessionWindow.isDestroyed()) {
+                    sessionWindow.webContents.send('chat-response', {
+                        sessionId,
+                        content: `🎤 **Transcription:** ${transcription}\n\n🤖 **AI Response:** ${aiResponse}`,
+                        timestamp: new Date().toISOString(),
+                        source: 'audio-transcription'
+                    });
+                    console.log(`🎤 [TRANSCRIPTION] Sent transcription and AI response to session window`);
+                } else {
+                    console.warn(`🎤 [TRANSCRIPTION] No session window found for ${sessionId}`);
+                }
+            } catch (error) {
+                console.error(`🎤 [TRANSCRIPTION] Error processing transcription for session ${sessionId}:`, error);
+                
+                // Send error message to session window
+                const sessionWindow = this.sessionWindows.get(sessionId);
+                if (sessionWindow && !sessionWindow.isDestroyed()) {
+                    sessionWindow.webContents.send('chat-response', {
+                        sessionId,
+                        content: `🎤 **Transcription:** ${transcription}\n\n❌ **Error:** Failed to process transcription. Please check your API configuration.`,
+                        timestamp: new Date().toISOString(),
+                        source: 'audio-transcription-error'
+                    });
+                }
+            }
+        });
+
         ipcMain.on('capture-screenshot', async (event, data) => {
             const { sessionId } = data;
             const session = this.sessions.get(sessionId);
@@ -1840,11 +1890,38 @@ Format your response with clear sections and use markdown for better readability
                         
                         this.writeLog(`🎤 [IPC] Recording started successfully for session: ${sessionId}`);
                     } else {
-                        // Stop recording
-                        this.writeLog(`🎤 [IPC] Stopping audio recording for session: ${sessionId}`);
-                        await this.audioService.stopRecording(sessionId);
-                        session.isRecording = false;
-                        this.writeLog(`🎤 [IPC] Recording stopped for session: ${sessionId}`);
+                    // Stop recording and get transcription
+                    this.writeLog(`🎤 [IPC] Stopping audio recording for session: ${sessionId}`);
+                    const transcription = await this.audioService.stopRecording(sessionId);
+                    session.isRecording = false;
+                    this.writeLog(`🎤 [IPC] Recording stopped for session: ${sessionId}`);
+
+                    if (transcription) {
+                        this.writeLog(`🎤 [TRANSCRIPTION] Received transcription: "${transcription}"`);
+                        // Display transcription in chat window
+                        const sessionWindow = this.sessionWindows.get(sessionId);
+                        if (sessionWindow && !sessionWindow.isDestroyed()) {
+                            sessionWindow.webContents.send('chat-response', {
+                                sessionId,
+                                content: `🎤 **Transcription:** ${transcription}`,
+                                timestamp: new Date().toISOString(),
+                                source: 'audio-transcription'
+                            });
+                        }
+
+                        // Send transcription to LLM for analysis
+                        if (this.openai && this.chatService) {
+                            const aiResponse = await this.chatService.processTranscript(sessionId, transcription, AudioSource.BOTH);
+                            if (sessionWindow && !sessionWindow.isDestroyed()) {
+                                sessionWindow.webContents.send('chat-response', {
+                                    sessionId,
+                                    content: `🤖 **AI Response:** ${aiResponse}`,
+                                    timestamp: new Date().toISOString(),
+                                    source: 'audio-transcription'
+                                });
+                            }
+                        }
+                    }
                     }
 
                     event.reply('recording-status', {
