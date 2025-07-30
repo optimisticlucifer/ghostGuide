@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SessionManager = void 0;
-const crypto_1 = require("crypto");
 const uuid_1 = require("uuid");
 const PersistenceService_1 = require("./PersistenceService");
 class SessionManager {
@@ -14,9 +13,9 @@ class SessionManager {
         if (this.sessions.size >= this.maxSessions) {
             throw new Error('Maximum number of sessions reached');
         }
-        const sessionId = (0, crypto_1.randomUUID)();
+        const sessionId = (0, uuid_1.v4)(); // Use consistent UUID generator
         const session = {
-            id: (0, uuid_1.v4)(),
+            id: sessionId, // Use the same sessionId for both map key and session object
             profession: config.profession,
             interviewType: config.interviewType,
             chatHistory: [],

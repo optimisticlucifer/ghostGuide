@@ -160,15 +160,42 @@ class InterviewAssistant {
         console.log(message);
     }
     initializeOpenAI() {
-        const apiKey = this.store.get('openai-api-key');
-        if (apiKey) {
+        // Try to get API key from ConfigurationManager first, then fallback to Electron Store
+        let apiKey = '';
+        try {
+            if (this.configurationManager.isApiKeyConfigured()) {
+                apiKey = this.configurationManager.getApiKey();
+                this.writeLog('🔑 [OPENAI] Using API key from ConfigurationManager');
+            }
+            else {
+                // Fallback to Electron Store for backwards compatibility
+                apiKey = this.store.get('openai-api-key');
+                if (apiKey) {
+                    this.writeLog('🔑 [OPENAI] Found API key in Electron Store, migrating to ConfigurationManager');
+                    // Migrate to ConfigurationManager
+                    this.configurationManager.setApiKey(apiKey);
+                }
+            }
+        }
+        catch (error) {
+            this.writeLog(`⚠️ [OPENAI] Error accessing ConfigurationManager: ${error.message}`);
+            // Fallback to Electron Store
+            apiKey = this.store.get('openai-api-key');
+        }
+        if (apiKey && apiKey.trim().length > 0) {
             this.writeLog('🔑 [OPENAI] Initializing OpenAI client with stored API key');
-            this.openai = new openai_1.default({ apiKey });
-            // Update configuration manager with API key
-            this.configurationManager.setApiKey(apiKey);
+            try {
+                this.openai = new openai_1.default({ apiKey });
+                this.writeLog('✅ [OPENAI] OpenAI client initialized successfully');
+            }
+            catch (error) {
+                this.writeLog(`❌ [OPENAI] Failed to initialize OpenAI client: ${error.message}`);
+                this.openai = null;
+            }
         }
         else {
             this.writeLog('⚠️ [OPENAI] No API key found - using fallback responses');
+            this.openai = null;
         }
     }
     async initialize() {
@@ -267,8 +294,10 @@ class InterviewAssistant {
     createMainWindow() {
         console.log('🪟 [WINDOW] Creating main window...');
         this.mainWindow = new electron_1.BrowserWindow({
-            width: 200,
-            height: 400,
+            width: 300,
+            height: 500,
+            minWidth: 250,
+            minHeight: 400,
             webPreferences: {
                 nodeIntegration: true,
                 contextIsolation: false,
@@ -277,7 +306,7 @@ class InterviewAssistant {
                 offscreen: false
             },
             title: 'Interview Assistant',
-            resizable: false,
+            resizable: true,
             alwaysOnTop: true,
             skipTaskbar: true,
             // Enhanced stealth properties with opacity control
@@ -441,8 +470,10 @@ class InterviewAssistant {
     createSessionWindow(sessionId, config) {
         console.log(`🪟 [SESSION] Creating session window for ${sessionId}:`, config);
         const sessionWindow = new electron_1.BrowserWindow({
-            width: 400,
-            height: 500,
+            width: 800,
+            height: 600,
+            minWidth: 600,
+            minHeight: 500,
             webPreferences: {
                 nodeIntegration: true,
                 contextIsolation: false,
@@ -451,7 +482,7 @@ class InterviewAssistant {
                 offscreen: false
             },
             title: `${config.profession} - ${config.interviewType}`,
-            resizable: false,
+            resizable: true,
             alwaysOnTop: true,
             skipTaskbar: true,
             // Enhanced stealth properties with opacity control
@@ -553,14 +584,19 @@ class InterviewAssistant {
             display: flex;
             gap: 8px;
             background: #f8f9fa;
+            flex-shrink: 0;
           }
-          .input-container input {
+          .input-container textarea {
             flex: 1;
             padding: 10px;
             border: 1px solid #ddd;
             border-radius: 6px;
             font-size: 14px;
             -webkit-app-region: no-drag;
+            min-height: 40px;
+            max-height: 120px;
+            resize: vertical;
+            font-family: inherit;
           }
           .input-container button {
             padding: 10px 16px;
@@ -602,7 +638,7 @@ class InterviewAssistant {
         </div>
         
         <div class="input-container">
-          <input type="text" id="messageInput" placeholder="Ask me anything about your interview..." onkeypress="handleKeyPress(event)">
+          <textarea id="messageInput" placeholder="Ask me anything about your interview..." onkeydown="handleKeyPress(event)" rows="1"></textarea>
           <button onclick="sendMessage()">Send</button>
         </div>
         
@@ -654,14 +690,17 @@ class InterviewAssistant {
               console.log('💬 [SESSION-WINDOW] Sending message:', message);
               addMessage(message, 'user');
               input.value = '';
+              input.style.height = 'auto'; // Reset height after sending
               ipcRenderer.send('chat-message', { sessionId, message });
             }
           }
           
           function handleKeyPress(event) {
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
               sendMessage();
             }
+            // Let Shift+Enter add a new line naturally
           }
           
           function addMessage(text, type) {
@@ -1144,14 +1183,16 @@ Format your response with clear sections and use markdown for better readability
             return this.settingsWindow;
         }
         this.settingsWindow = new electron_1.BrowserWindow({
-            width: 600,
-            height: 500,
+            width: 700,
+            height: 600,
+            minWidth: 500,
+            minHeight: 400,
             webPreferences: {
                 nodeIntegration: true,
                 contextIsolation: false
             },
             title: 'Interview Assistant - Settings',
-            resizable: false,
+            resizable: true,
             alwaysOnTop: true
         });
         const html = `
@@ -2009,12 +2050,28 @@ Format your response with clear sections and use markdown for better readability
             this.createSettingsWindow();
         });
         // Add handlers for settings functionality
-        electron_1.ipcMain.on('save-api-key', (event, apiKey) => {
+        electron_1.ipcMain.on('save-api-key', async (event, apiKey) => {
             console.log('🔑 [IPC] Saving API key...');
-            this.store.set('openai-api-key', apiKey);
-            this.initializeOpenAI(); // Reinitialize OpenAI with new key
-            console.log('🔑 [IPC] API key saved and OpenAI reinitialized');
-            event.reply('api-key-saved');
+            try {
+                // Save to Electron Store first (always works)
+                this.store.set('openai-api-key', apiKey);
+                // Try to save to ConfigurationManager but don't fail if encryption fails
+                try {
+                    await this.configurationManager.updateApiKey(apiKey);
+                    console.log('🔑 [IPC] API key saved to both Electron Store and ConfigurationManager');
+                }
+                catch (configError) {
+                    console.warn('🔑 [IPC] ConfigurationManager save failed, but Electron Store succeeded:', configError.message);
+                    // Continue - the key is still saved in Electron Store
+                }
+                this.initializeOpenAI(); // Reinitialize OpenAI with new key
+                console.log('🔑 [IPC] API key saved and OpenAI reinitialized');
+                event.reply('api-key-saved');
+            }
+            catch (error) {
+                console.error('🔑 [IPC] Failed to save API key:', error);
+                event.reply('api-key-invalid', 'Failed to save API key: ' + error.message);
+            }
         });
         electron_1.ipcMain.on('test-api-key', async (event, apiKey) => {
             console.log('🔑 [IPC] Testing API key...');

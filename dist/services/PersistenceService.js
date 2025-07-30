@@ -143,20 +143,39 @@ class PersistenceService {
     }
     async saveAppConfig(config) {
         try {
-            // Encrypt sensitive data before saving
+            // Encrypt sensitive data before saving (but don't fail if encryption fails)
             const configToSave = { ...config };
+            // Try to encrypt API key if encryption service is available
             if (configToSave.apiKey && this.encryptionService.isInitialized()) {
-                configToSave.apiKey = this.encryptionService.encrypt(configToSave.apiKey);
-                configToSave._encrypted = true;
+                try {
+                    configToSave.apiKey = this.encryptionService.encrypt(configToSave.apiKey);
+                    configToSave._encrypted = true;
+                    console.log('✅ [PERSISTENCE] API key encrypted successfully');
+                }
+                catch (encryptError) {
+                    console.warn('⚠️ [PERSISTENCE] API key encryption failed, saving in plain text:', encryptError.message);
+                    // Continue without encryption - save in plain text
+                    configToSave._encrypted = false;
+                }
             }
+            // Try to encrypt prompt library if encryption service is available
             if (configToSave.promptLibrary && this.encryptionService.isInitialized()) {
-                configToSave.promptLibrary = this.encryptionService.encryptObject(configToSave.promptLibrary);
-                configToSave._promptsEncrypted = true;
+                try {
+                    configToSave.promptLibrary = this.encryptionService.encryptObject(configToSave.promptLibrary);
+                    configToSave._promptsEncrypted = true;
+                    console.log('✅ [PERSISTENCE] Prompt library encrypted successfully');
+                }
+                catch (encryptError) {
+                    console.warn('⚠️ [PERSISTENCE] Prompt library encryption failed, saving in plain text:', encryptError.message);
+                    // Continue without encryption - save in plain text
+                    configToSave._promptsEncrypted = false;
+                }
             }
             await fs.promises.writeFile(this.configFile, JSON.stringify(configToSave, null, 2), 'utf8');
+            console.log('✅ [PERSISTENCE] App config saved successfully');
         }
         catch (error) {
-            console.error('Failed to save app config:', error);
+            console.error('❌ [PERSISTENCE] Failed to save app config:', error);
             throw error;
         }
     }

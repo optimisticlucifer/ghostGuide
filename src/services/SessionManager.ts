@@ -17,9 +17,9 @@ export class SessionManager {
       throw new Error('Maximum number of sessions reached');
     }
 
-    const sessionId = randomUUID();
+    const sessionId = uuidv4(); // Use consistent UUID generator
     const session: Session = {
-      id: uuidv4(),
+      id: sessionId, // Use the same sessionId for both map key and session object
       profession: config.profession,
       interviewType: config.interviewType,
       chatHistory: [],
