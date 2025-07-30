@@ -58,7 +58,7 @@ const AUDIO_CONFIG = {
   RECOVERY_DELAY: 2000, // 2 seconds
   RESTART_DELAY: 3000, // 3 seconds
   WHISPER_EXECUTABLE: 'whisper-cli', // name of whisper-cli binary in PATH
-  MODEL_PATH: '/Users/rohanbharti/tools/ggml-large-v3-turbo.bin' // default model path
+  MODEL_PATH: '/Users/rohanbharti/tools/ggml-base.en.bin' // default model path
 } as const;
 
 export class AudioService {
@@ -375,9 +375,9 @@ export class AudioService {
         return [
           ...baseArgs,
           '-f', 'avfoundation',
-          '-i', ':0', // BlackHole 2ch
-          '-ac', '1', // Mono
-          '-ar', '16000', // 16kHz sample rate
+          '-i', ':0', // Assumes BlackHole is the first audio device, may need adjustment
+          '-ac', '1',
+          '-ar', '16000',
           '-acodec', 'pcm_s16le',
           outputFile
         ];
@@ -947,17 +947,50 @@ export class AudioService {
   }
 
   /**
-   * Clean transcription text by removing timestamps and formatting
+   * Clean transcription text by removing timestamps, ANSI color codes, and formatting
    */
   private cleanTranscriptionText(text: string): string {
-    // Remove timestamp patterns like [00:00:00.000 --> 00:00:02.000]
-    let cleaned = text.replace(/\[\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}\]/g, '');
+    let cleaned = text;
     
-    // Remove extra whitespace and trim
-    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+    // Remove ANSI color codes (like [38;5;160m, [0m, etc.)
+    cleaned = cleaned.replace(/\x1b\[[0-9;]*m/g, ''); // Standard ANSI codes
+    cleaned = cleaned.replace(/\[\d+;\d+;\d+m/g, ''); // 256-color codes like [38;5;160m
+    cleaned = cleaned.replace(/\[\d+m/g, ''); // Simple codes like [0m
+    cleaned = cleaned.replace(/\[0m/g, ''); // Reset codes
+    
+    // Remove timestamp patterns like [00:00:00.000 --> 00:00:02.000]
+    cleaned = cleaned.replace(/\[\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}\]/g, '');
+    
+    // Remove WebVTT style timestamps like 00:00:00.000 --> 00:00:02.000
+    cleaned = cleaned.replace(/\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}/g, '');
+    
+    // Remove whisper-style timestamps like [00:00.000 --> 00:02.000]
+    cleaned = cleaned.replace(/\[\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}\.\d{3}\]/g, '');
+    
+    // Remove simple timestamps like [0.00s -> 2.00s]
+    cleaned = cleaned.replace(/\[\d+\.\d+s\s*->\s*\d+\.\d+s\]/g, '');
+    
+    // Remove WEBVTT header if present
+    cleaned = cleaned.replace(/^WEBVTT\s*/gi, '');
+    
+    // Remove speaker labels like "Speaker 1:" or "[Speaker 1]"
+    cleaned = cleaned.replace(/\[?Speaker\s+\d+\]?\s*:?\s*/gi, '');
+    
+    // Remove confidence scores like (confidence: 0.95) or [95.5%]
+    cleaned = cleaned.replace(/\(confidence:\s*\d+\.\d+\)/gi, '');
+    cleaned = cleaned.replace(/\[\d+\.\d+%\]/g, '');
+    
+    // Remove multiple consecutive spaces
+    cleaned = cleaned.replace(/\s+/g, ' ');
     
     // Remove leading/trailing quotes if present
-    cleaned = cleaned.replace(/^["']|["']$/g, '');
+    cleaned = cleaned.replace(/^["']+|["']+$/g, '');
+    
+    // Remove leading/trailing whitespace
+    cleaned = cleaned.trim();
+    
+    // Remove empty lines and normalize
+    cleaned = cleaned.replace(/\n\s*\n/g, '\n').trim();
     
     return cleaned;
   }

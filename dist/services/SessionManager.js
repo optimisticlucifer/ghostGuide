@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SessionManager = void 0;
 const crypto_1 = require("crypto");
+const uuid_1 = require("uuid");
 const PersistenceService_1 = require("./PersistenceService");
 class SessionManager {
     constructor() {
@@ -15,11 +16,12 @@ class SessionManager {
         }
         const sessionId = (0, crypto_1.randomUUID)();
         const session = {
-            id: sessionId,
+            id: (0, uuid_1.v4)(),
             profession: config.profession,
             interviewType: config.interviewType,
             chatHistory: [],
             isRecording: false,
+            isSystemRecording: false,
             ragContext: []
         };
         this.sessions.set(sessionId, session);

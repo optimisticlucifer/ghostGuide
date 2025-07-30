@@ -14,6 +14,7 @@ export interface Session {
   interviewType: string;
   chatHistory: ChatMessage[];
   isRecording: boolean;
+  isSystemRecording: boolean;
   ragContext: string[];
 }
 

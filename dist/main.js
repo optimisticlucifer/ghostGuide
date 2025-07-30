@@ -586,9 +586,11 @@ class InterviewAssistant {
         <div class="toolbar">
           <button onclick="takeScreenshot()">📷 Screenshot</button>
           <button onclick="debugCode()">🐛 Debug</button>
-          <button onclick="toggleRecording()">🎤 Record</button>
+          <button onclick="toggleRecording()">🎤 Record Mic</button>
+          <button onclick="toggleSystemRecording()">🔊 Record System</button>
           <button onclick="addRAGMaterial()">📚 RAG</button>
           <button onclick="closeSession()">❌ Close</button>
+        </div>
         </div>
         
         <div class="chat-container" id="chat">
@@ -623,9 +625,15 @@ class InterviewAssistant {
           }
           
           function toggleRecording() {
-            console.log('🎤 [SESSION-WINDOW] Record button clicked');
-            addMessage('🎤 Toggling recording...', 'user');
-            ipcRenderer.send('toggle-recording', { sessionId });
+            console.log('🎤 [SESSION-WINDOW] Record Mic button clicked');
+            addMessage('🎤 Toggling microphone recording...', 'user');
+            ipcRenderer.send('toggle-recording', { sessionId, source: 'microphone' });
+          }
+          
+          function toggleSystemRecording() {
+            console.log('🔊 [SESSION-WINDOW] Record System button clicked');
+            addMessage('🔊 Toggling system audio recording...', 'user');
+            ipcRenderer.send('toggle-system-recording', { sessionId });
           }
           
           function addRAGMaterial() {
@@ -805,6 +813,7 @@ class InterviewAssistant {
             ...config,
             chatHistory: [],
             isRecording: false,
+            isSystemRecording: false,
             hasRAG: false
         });
         console.log(`🪟 [SESSION] Session window created successfully: ${sessionId}`);
@@ -881,38 +890,76 @@ class InterviewAssistant {
         // For now, we'll keep them hidden for stealth mode
         // Users can use hotkeys to show them again
     }
+    cleanTranscription(text) {
+        // Enhanced cleaning to remove timestamps, ANSI color codes, and other noise
+        let cleaned = text;
+        // Remove ANSI color codes (like [38;5;160m, [0m, etc.)
+        cleaned = cleaned.replace(/\x1b\[[0-9;]*m/g, ''); // Standard ANSI codes
+        cleaned = cleaned.replace(/\[\d+;\d+;\d+m/g, ''); // 256-color codes like [38;5;160m
+        cleaned = cleaned.replace(/\[\d+m/g, ''); // Simple codes like [0m
+        cleaned = cleaned.replace(/\[0m/g, ''); // Reset codes
+        // Remove VTT timestamps and formatting
+        cleaned = cleaned.replace(/\[\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}\]/g, '');
+        cleaned = cleaned.replace(/\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}/g, '');
+        cleaned = cleaned.replace(/\[\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}\.\d{3}\]/g, '');
+        cleaned = cleaned.replace(/\[\d+\.\d+s\s*->\s*\d+\.\d+s\]/g, '');
+        // Remove WebVTT headers
+        cleaned = cleaned.replace(/^WEBVTT\s*/gi, '');
+        // Remove speaker labels and confidence scores
+        cleaned = cleaned.replace(/\[Speaker \d+\]/gi, '');
+        cleaned = cleaned.replace(/\[Confidence: \d+\.\d+\]/gi, '');
+        cleaned = cleaned.replace(/\[\d+\.\d+%\]/g, '');
+        // Clean up whitespace and newlines
+        cleaned = cleaned.replace(/\s+/g, ' ').trim();
+        cleaned = cleaned.replace(/\n\s*\n/g, '\n').trim();
+        return cleaned;
+    }
     startTranscriptionPolling(sessionId) {
         const pollTranscriptions = async () => {
             const session = this.sessions.get(sessionId);
-            if (!session || !session.isRecording) {
+            if (!session || (!session.isRecording && !session.isSystemRecording)) {
                 return; // Stop polling if session ended or recording stopped
             }
             try {
                 // Get recent transcriptions from audio service
                 const transcriptions = this.audioService.getRecentTranscriptions(sessionId);
                 for (const transcription of transcriptions) {
-                    if (transcription.transcription && transcription.transcription.trim().length > 0) {
-                        console.log(`🎤 [TRANSCRIPTION] New transcription for session ${sessionId}: ${transcription.transcription}`);
-                        // Send transcription to session window
+                    const cleanedTranscription = this.cleanTranscription(transcription.transcription);
+                    if (cleanedTranscription.length > 0) {
+                        console.log(`🎤 [TRANSCRIPTION] New transcription for session ${sessionId}: ${cleanedTranscription}`);
                         const sessionWindow = this.sessionWindows.get(sessionId);
                         if (sessionWindow) {
                             sessionWindow.webContents.send('transcription-received', {
                                 sessionId,
-                                transcription: transcription.transcription,
+                                transcription: cleanedTranscription,
                                 timestamp: transcription.timestamp,
                                 segmentId: transcription.segmentId
                             });
                         }
                         // Process transcription with AI for coaching
-                        if (this.openai) {
+                        if (this.openai && session) {
                             try {
-                                const aiResponse = await this.chatService.processTranscript(sessionId, transcription.transcription, types_1.AudioSource.BOTH);
-                                // Send AI coaching response
-                                if (sessionWindow) {
+                                const isSystem = session.isSystemRecording;
+                                const systemPrompt = `You are an expert interview coach specializing in ${session.profession} ${session.interviewType} interviews.`;
+                                const coachingRequest = isSystem
+                                    ? `🎯 **INTERVIEWER QUESTION DETECTED:**\n\n"${cleanedTranscription}"\n\nThis is what the interviewer just asked. Please help me understand:\n1. What they're looking for in my response\n2. How to structure a strong answer\n3. Key talking points to cover\n4. Any clarifying questions I should ask\n\nTailor your advice specifically for this ${session.profession} ${session.interviewType} interview.`
+                                    : `🎙️ **MY RESPONSE ANALYSIS:**\n\n"${cleanedTranscription}"\n\nThis is what I just said in response. Please provide:\n1. Feedback on my answer quality\n2. What I did well\n3. Areas for improvement\n4. Suggestions for follow-up points\n5. How to strengthen similar responses\n\nEvaluate this for a ${session.profession} ${session.interviewType} interview.`;
+                                const completion = await this.openai.chat.completions.create({
+                                    model: 'gpt-3.5-turbo',
+                                    messages: [
+                                        { role: 'system', content: systemPrompt },
+                                        { role: 'user', content: coachingRequest }
+                                    ],
+                                    max_tokens: 800,
+                                    temperature: 0.7
+                                });
+                                const aiResponse = completion.choices[0].message.content || 'Unable to generate analysis';
+                                if (sessionWindow && !sessionWindow.isDestroyed()) {
                                     sessionWindow.webContents.send('chat-response', {
                                         sessionId,
-                                        content: `🎤 **Audio Coaching:**\n\n${aiResponse}`,
-                                        timestamp: new Date().toISOString()
+                                        content: `🤖 **AI Coach:** ${aiResponse}`,
+                                        timestamp: new Date().toISOString(),
+                                        source: isSystem ? 'system-audio-transcription' : 'audio-transcription'
                                     });
                                 }
                             }
@@ -923,14 +970,14 @@ class InterviewAssistant {
                     }
                 }
                 // Continue polling if still recording
-                if (session.isRecording) {
+                if (session.isRecording || session.isSystemRecording) {
                     setTimeout(pollTranscriptions, 2000); // Poll every 2 seconds
                 }
             }
             catch (error) {
                 console.error(`🎤 [TRANSCRIPTION] Polling error for session ${sessionId}:`, error);
                 // Continue polling despite errors
-                if (session && session.isRecording) {
+                if (session && (session.isRecording || session.isSystemRecording)) {
                     setTimeout(pollTranscriptions, 5000); // Retry after 5 seconds
                 }
             }
@@ -1753,15 +1800,32 @@ Format your response with clear sections and use markdown for better readability
                                 });
                             }
                             // Send transcription to LLM for analysis
-                            if (this.openai && this.chatService) {
-                                const aiResponse = await this.chatService.processTranscript(sessionId, transcription, types_1.AudioSource.BOTH);
-                                if (sessionWindow && !sessionWindow.isDestroyed()) {
-                                    sessionWindow.webContents.send('chat-response', {
-                                        sessionId,
-                                        content: `🤖 **AI Response:** ${aiResponse}`,
-                                        timestamp: new Date().toISOString(),
-                                        source: 'audio-transcription'
+                            if (this.openai && session) {
+                                try {
+                                    // Create direct AI analysis for mic audio (interviewee)
+                                    const systemPrompt = `You are an expert interview coach specializing in ${session.profession} ${session.interviewType} interviews. The user has just provided their response to a question.`;
+                                    const coachingRequest = `🎙️ **MY RESPONSE ANALYSIS:**\n\n"${transcription}"\n\nThis is what I just said in response. Please provide:\n1. Feedback on my answer quality\n2. What I did well\n3. Areas for improvement\n4. Suggestions for follow-up points\n5. How to strengthen similar responses\n\nEvaluate this for a ${session.profession} ${session.interviewType} interview.`;
+                                    const completion = await this.openai.chat.completions.create({
+                                        model: 'gpt-3.5-turbo',
+                                        messages: [
+                                            { role: 'system', content: systemPrompt },
+                                            { role: 'user', content: coachingRequest }
+                                        ],
+                                        max_tokens: 800,
+                                        temperature: 0.7
                                     });
+                                    const aiResponse = completion.choices[0].message.content || 'Unable to generate analysis';
+                                    if (sessionWindow && !sessionWindow.isDestroyed()) {
+                                        sessionWindow.webContents.send('chat-response', {
+                                            sessionId,
+                                            content: `🤖 **AI Feedback:** ${aiResponse}`,
+                                            timestamp: new Date().toISOString(),
+                                            source: 'audio-transcription'
+                                        });
+                                    }
+                                }
+                                catch (error) {
+                                    console.error(`Failed to process mic audio transcription: ${error}`);
                                 }
                             }
                         }
@@ -1784,6 +1848,105 @@ Format your response with clear sections and use markdown for better readability
             }
             else {
                 this.writeLog(`⚠️ [IPC] Session not found for recording toggle: ${sessionId}`);
+            }
+        });
+        // Add handler for system audio recording
+        electron_1.ipcMain.on('toggle-system-recording', async (event, data) => {
+            const { sessionId } = data;
+            const session = this.sessions.get(sessionId);
+            this.writeLog(`🔊 [IPC] System recording toggle requested for session: ${sessionId}`);
+            if (session) {
+                try {
+                    if (!session.isSystemRecording) {
+                        // Start system audio recording
+                        this.writeLog(`🔊 [IPC] Starting system audio recording for session: ${sessionId}`);
+                        // Initialize audio service if not ready
+                        if (!this.audioService.isReady()) {
+                            this.writeLog(`🔊 [IPC] Initializing audio service...`);
+                            await this.audioService.initialize();
+                            this.writeLog(`🔊 [IPC] Audio service initialized`);
+                        }
+                        // Check audio service status
+                        const audioStatus = this.audioService.getStatus();
+                        this.writeLog(`🔊 [IPC] Audio service status: ${JSON.stringify(audioStatus)}`);
+                        // Start recording system audio only
+                        this.writeLog(`🔊 [IPC] Calling audioService.startRecording with AudioSource.SYSTEM`);
+                        await this.audioService.startRecording(types_1.AudioSource.SYSTEM, sessionId);
+                        session.isSystemRecording = true;
+                        // Start polling for transcriptions
+                        this.writeLog(`🔊 [IPC] Starting transcription polling for session: ${sessionId}`);
+                        this.startTranscriptionPolling(sessionId);
+                        this.writeLog(`🔊 [IPC] System recording started successfully for session: ${sessionId}`);
+                    }
+                    else {
+                        // Stop system recording and get transcription
+                        this.writeLog(`🔊 [IPC] Stopping system audio recording for session: ${sessionId}`);
+                        const transcription = await this.audioService.stopRecording(sessionId);
+                        session.isSystemRecording = false;
+                        this.writeLog(`🔊 [IPC] System recording stopped for session: ${sessionId}`);
+                        if (transcription) {
+                            this.writeLog(`🔊 [TRANSCRIPTION] Received system audio transcription: "${transcription}"`);
+                            // Display transcription in chat window
+                            const sessionWindow = this.sessionWindows.get(sessionId);
+                            if (sessionWindow && !sessionWindow.isDestroyed()) {
+                                sessionWindow.webContents.send('chat-response', {
+                                    sessionId,
+                                    content: `🔊 **System Audio Transcription:** ${transcription}`,
+                                    timestamp: new Date().toISOString(),
+                                    source: 'system-audio-transcription'
+                                });
+                            }
+                            // Send transcription to LLM for analysis
+                            if (this.openai && session) {
+                                try {
+                                    // Create direct AI analysis for system audio (interviewer)
+                                    const systemPrompt = `You are an expert interview coach specializing in ${session.profession} ${session.interviewType} interviews. The interviewer just asked a question.`;
+                                    const coachingRequest = `🎯 **INTERVIEWER QUESTION DETECTED:**\n\n"${transcription}"\n\nThis is what the interviewer just asked. Please help me understand:\n1. What they're looking for in my response\n2. How to structure a strong answer\n3. Key talking points to cover\n4. Any clarifying questions I should ask\n\nTailor your advice specifically for this ${session.profession} ${session.interviewType} interview.`;
+                                    const completion = await this.openai.chat.completions.create({
+                                        model: 'gpt-3.5-turbo',
+                                        messages: [
+                                            { role: 'system', content: systemPrompt },
+                                            { role: 'user', content: coachingRequest }
+                                        ],
+                                        max_tokens: 800,
+                                        temperature: 0.7
+                                    });
+                                    const aiResponse = completion.choices[0].message.content || 'Unable to generate analysis';
+                                    if (sessionWindow && !sessionWindow.isDestroyed()) {
+                                        sessionWindow.webContents.send('chat-response', {
+                                            sessionId,
+                                            content: `🤖 **AI Interview Coach:** ${aiResponse}`,
+                                            timestamp: new Date().toISOString(),
+                                            source: 'system-audio-transcription'
+                                        });
+                                    }
+                                }
+                                catch (error) {
+                                    console.error(`Failed to process system audio transcription: ${error}`);
+                                }
+                            }
+                        }
+                    }
+                    event.reply('recording-status', {
+                        sessionId,
+                        isRecording: session.isSystemRecording || false,
+                        recordingType: 'system'
+                    });
+                }
+                catch (error) {
+                    this.writeLog(`❌ [IPC] System recording toggle failed for session ${sessionId}: ${error.message}`);
+                    this.writeLog(`❌ [IPC] Error stack: ${error.stack}`);
+                    session.isSystemRecording = false;
+                    event.reply('recording-status', {
+                        sessionId,
+                        isRecording: false,
+                        recordingType: 'system',
+                        error: error.message
+                    });
+                }
+            }
+            else {
+                this.writeLog(`⚠️ [IPC] Session not found for system recording toggle: ${sessionId}`);
             }
         });
         electron_1.ipcMain.on('add-rag-material', async (event, data) => {

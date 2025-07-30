@@ -176,12 +176,12 @@ export class ChatService {
 
       // Create coaching request based on source
       let coachingRequest: string;
-      if (source === AudioSource.INTERVIEWER) {
-        coachingRequest = `The interviewer just said: "${transcript}"\n\nPlease help me understand this question and suggest how to respond effectively.`;
+      if (source === AudioSource.SYSTEM) {
+        coachingRequest = `🎯 **INTERVIEWER QUESTION DETECTED:**\n\n"${transcript}"\n\nThis is what the interviewer just asked. Please help me:\n1. Understand what they're looking for\n2. Structure a strong response\n3. Provide key talking points\n4. Suggest any clarifying questions I should ask\n\nTailor your advice for this ${session.profession} ${session.interviewType} interview.`;
       } else if (source === AudioSource.INTERVIEWEE) {
-        coachingRequest = `I just said: "${transcript}"\n\nPlease provide feedback on my response and suggest improvements.`;
+        coachingRequest = `🎙️ **MY RESPONSE ANALYSIS:**\n\n"${transcript}"\n\nThis is what I just said in response. Please provide:\n1. Feedback on my answer quality\n2. What I did well\n3. Areas for improvement\n4. Suggestions for follow-up points\n5. How to strengthen similar responses\n\nEvaluate this for a ${session.profession} ${session.interviewType} interview.`;
       } else {
-        coachingRequest = `Here's what was said in the interview: "${transcript}"\n\nPlease provide relevant guidance and suggestions.`;
+        coachingRequest = `📝 **INTERVIEW TRANSCRIPT:**\n\n"${transcript}"\n\nPlease analyze this interview exchange and provide relevant guidance for this ${session.profession} ${session.interviewType} interview.`;
       }
 
       messages.push({

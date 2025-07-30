@@ -43,6 +43,7 @@ export class PersistenceService {
         interviewType: session.interviewType,
         chatHistory: session.chatHistory,
         isRecording: session.isRecording,
+        isSystemRecording: session.isSystemRecording,
         ragContext: session.ragContext,
         lastUpdated: new Date().toISOString()
       };
@@ -71,6 +72,7 @@ export class PersistenceService {
         interviewType: sessionData.interviewType,
         chatHistory: sessionData.chatHistory || [],
         isRecording: sessionData.isRecording || false,
+        isSystemRecording: sessionData.isSystemRecording || false,
         ragContext: sessionData.ragContext || []
       };
     } catch (error) {

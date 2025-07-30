@@ -1,5 +1,6 @@
 import { Session, SessionConfig, ChatMessage } from '../types';
 import { randomUUID } from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
 import { PersistenceService } from './PersistenceService';
 
 export class SessionManager {
@@ -18,11 +19,12 @@ export class SessionManager {
 
     const sessionId = randomUUID();
     const session: Session = {
-      id: sessionId,
+      id: uuidv4(),
       profession: config.profession,
       interviewType: config.interviewType,
       chatHistory: [],
       isRecording: false,
+      isSystemRecording: false,
       ragContext: []
     };
 
