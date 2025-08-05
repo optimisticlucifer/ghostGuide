@@ -55,7 +55,7 @@ class InterviewAssistant {
     private screenSharingDetectionService: ScreenSharingDetectionService;
     private isScreenSharingActive = false;
 
-    constructor() {
+constructor() {
         this.store = new Store();
 
         // Initialize services
@@ -134,6 +134,15 @@ class InterviewAssistant {
         try {
             // Initialize configuration manager first
             await this.configurationManager.initialize();
+            
+            // Add Quantitative Finance Engineer profession
+            try {
+                await this.promptLibraryService.addPersona('quantitative-finance-engineer', 'Quantitative Finance Engineer');
+                this.writeLog('✅ [SERVICES] Added Quantitative Finance Engineer profession');
+            } catch (error) {
+                // Profession might already exist, which is fine
+                this.writeLog(`ℹ️ [SERVICES] Quantitative Finance Engineer profession: ${(error as Error).message}`);
+            }
             
             // Initialize other services that depend on configuration
             await this.audioService.initialize();
@@ -454,6 +463,7 @@ class InterviewAssistant {
             <option value="designer">🎨 UX/UI Designer</option>
             <option value="devops-engineer">⚙️ DevOps Engineer</option>
             <option value="security-engineer">🔒 Security Engineer</option>
+            <option value="quantitative-finance-engineer">💹 Quantitative Finance Engineer</option>
           </select>
           
           <select id="interview-type">
@@ -1064,8 +1074,20 @@ class InterviewAssistant {
                                 const isSystem = session.isSystemRecording;
                                 const systemPrompt = `You are an expert interview coach specializing in ${session.profession} ${session.interviewType} interviews.`;
                                 const coachingRequest = isSystem
-                                    ? `🎯 **INTERVIEWER QUESTION DETECTED:**\n\n"${cleanedTranscription}"\n\nThis is what the interviewer just asked. Please help me understand:\n1. What they're looking for in my response\n2. How to structure a strong answer\n3. Key talking points to cover\n4. Any clarifying questions I should ask\n\nTailor your advice specifically for this ${session.profession} ${session.interviewType} interview.`
-                                    : `🎙️ **MY RESPONSE ANALYSIS:**\n\n"${cleanedTranscription}"\n\nThis is what I just said in response. Please provide:\n1. Feedback on my answer quality\n2. What I did well\n3. Areas for improvement\n4. Suggestions for follow-up points\n5. How to strengthen similar responses\n\nEvaluate this for a ${session.profession} ${session.interviewType} interview.`;
+                                            ? `🧠 **INTERVIEW QUESTION DETECTED**\n\n"${cleanedTranscription}"\n\nPlease analyze this question and provide:\n
+                                          1. **Question Type** – Is this theoretical, behavioral, or coding-related?\n
+                                          2. **What the interviewer is expecting** – Key elements they want to hear.\n
+                                          3. **Step-by-step structure** – How to answer this clearly and confidently in an interview.\n
+                                          4. **Full  answer** – Write a detailed, spoken-style answer that I can say directly in the interview.\n
+                                          5. **Bonus Tips** – Any follow-up questions I should ask or traps to avoid.\n
+                                          \nAdapt the explanation for a **${session.profession}** role in a **${session.interviewType}** interview.`
+                                            : `🗣️ **MY INTERVIEW RESPONSE REVIEW**\n\n"${cleanedTranscription}"\n\nPlease evaluate my response and provide:\n
+                                          1. **Was my answer on-point?** – Did I understand the question and address it properly?\n
+                                          2. **Strengths** – What I did well.\n
+                                          3. **Improvements** – What could be clearer or better.\n
+                                          4. **Polish It Up** – Rewrite a cleaner, more impactful version I can say next time.\n
+                                          5. **Follow-up Points** – Suggestions to take my answer one step further.\n
+                                          \nGive feedback aligned with a **${session.profession}** role in a **${session.interviewType}** setting.`;
 
                                 const completion = await this.openai.chat.completions.create({
                                     model: 'gpt-3.5-turbo',
@@ -2006,8 +2028,14 @@ Format your response with clear sections and use markdown for better readability
                                 // Create direct AI analysis for mic audio (interviewee)
                                 const systemPrompt = `You are an expert interview coach specializing in ${session.profession} ${session.interviewType} interviews. The user has just provided their response to a question.`;
                                 
-                                const coachingRequest = `🎙️ **MY RESPONSE ANALYSIS:**\n\n"${transcription}"\n\nThis is what I just said in response. Please provide:\n1. Feedback on my answer quality\n2. What I did well\n3. Areas for improvement\n4. Suggestions for follow-up points\n5. How to strengthen similar responses\n\nEvaluate this for a ${session.profession} ${session.interviewType} interview.`;
-                                
+                                const coachingRequest = `🗣️ **MY INTERVIEW RESPONSE REVIEW:**\n\n"${transcription}"\n\nThis is what I just said in response. Please analyze and provide:\n
+                                    1. **Assessment** – Did I correctly understand and address the question?\n
+                                    2. **Strengths** – What I did well in terms of content, clarity, and delivery.\n
+                                    3. **Improvements** – Specific areas where I can be clearer, more structured, or more concise.\n
+                                    4. **Polished Version** – Rewrite a strong, spoken-style version of my answer that I can say next time.\n
+                                    5. **Follow-up Suggestions** – Any additional points or questions I could raise to show depth.\n
+                                    \nEvaluate this in the context of a **${session.profession}** role during a **${session.interviewType}** interview.`;
+
                                 const completion = await this.openai.chat.completions.create({
                                     model: 'gpt-3.5-turbo',
                                     messages: [
@@ -2115,8 +2143,14 @@ Format your response with clear sections and use markdown for better readability
                                 // Create direct AI analysis for system audio (interviewer)
                                 const systemPrompt = `You are an expert interview coach specializing in ${session.profession} ${session.interviewType} interviews. The interviewer just asked a question.`;
                                 
-                                const coachingRequest = `🎯 **INTERVIEWER QUESTION DETECTED:**\n\n"${transcription}"\n\nThis is what the interviewer just asked. Please help me understand:\n1. What they're looking for in my response\n2. How to structure a strong answer\n3. Key talking points to cover\n4. Any clarifying questions I should ask\n\nTailor your advice specifically for this ${session.profession} ${session.interviewType} interview.`;
-                                
+                                const coachingRequest = `🧠 **INTERVIEW QUESTION DETECTED:**\n\n"${transcription}"\n\nPlease analyze this question and provide:\n
+                                      1. **Question Type** – Is this a theoretical, behavioral, or coding question?\n
+                                      2. **What the interviewer is expecting** – What should a strong answer include?\n
+                                      3. **Answer Structure** – Step-by-step breakdown of how to respond effectively.\n
+                                      4. ** Answer** – A clear and detailed answer I can say directly in the interview.if there is code asked the give the code too its important.\n
+                                      5. **Follow-up Advice** – Any clarifying questions I should ask or pitfalls to avoid.\n
+                                      \nTailor everything specifically for a **${session.profession}** role in a **${session.interviewType}** interview.`;
+
                                 const completion = await this.openai.chat.completions.create({
                                     model: 'gpt-3.5-turbo',
                                     messages: [

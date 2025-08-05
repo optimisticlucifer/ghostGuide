@@ -376,7 +376,7 @@ class AudioService {
                 return [
                     ...baseArgs,
                     '-f', 'avfoundation',
-                    '-i', ':2', // MacBook Pro Microphone
+                    '-i', ':6', // MacBook Pro Microphone
                     '-ac', '1', // Mono
                     '-ar', '16000', // 16kHz sample rate
                     '-acodec', 'pcm_s16le',
@@ -388,7 +388,7 @@ class AudioService {
                 return [
                     ...baseArgs,
                     '-f', 'avfoundation',
-                    '-i', ':2', // MacBook Pro Microphone
+                    '-i', ':6', // MacBook Pro Microphone
                     '-ac', '1', // Mono
                     '-ar', '16000', // 16kHz sample rate
                     '-acodec', 'pcm_s16le',
