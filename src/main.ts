@@ -1,10 +1,8 @@
-import { app, BrowserWindow, ipcMain, globalShortcut, dialog, screen, desktopCapturer } from 'electron';
+import { app, BrowserWindow, ipcMain, globalShortcut, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { v4 as uuidv4 } from 'uuid';
 import Store from 'electron-store';
 import OpenAI from 'openai';
-import { exec } from 'child_process';
 import { OCRService } from './services/OCRService';
 import { CaptureService } from './services/CaptureService';
 import { AudioService } from './services/AudioService';
@@ -22,18 +20,6 @@ interface SessionConfig {
     interviewType: string;
     createdAt: Date;
     isActive: boolean;
-}
-
-interface ChatMessage {
-    id: string;
-    sessionId: string;
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp: Date;
-    metadata?: {
-        action?: string;
-        ocrText?: string;
-    };
 }
 
 class InterviewAssistant {
@@ -966,7 +952,7 @@ constructor() {
 
         try {
             // Hide all app windows before capture to ensure stealth
-            this.hideAllAppWindows();
+            // this.hideAllAppWindows();
             
             // Wait a moment for windows to hide
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -975,7 +961,7 @@ constructor() {
             const buffer = await this.captureService.captureScreen();
             
             // Restore windows after capture
-            this.restoreAllAppWindows();
+            // this.restoreAllAppWindows();
             
             this.writeLog(`📷 [CAPTURE] Screenshot captured successfully, size: ${buffer.length} bytes`);
             return buffer;
@@ -1185,23 +1171,58 @@ constructor() {
                 throw new Error('OpenAI client not initialized');
             }
 
-            const systemPrompt = `You are an expert interview coach specializing in ${profession} ${interviewType} interviews.
+            // const systemPrompt = `You are an expert interview coach specializing in ${profession} ${interviewType} interviews.
 
-Analyze the following interview question and provide comprehensive guidance:
+            // Analyze the following interview question and provide comprehensive guidance:
 
-QUESTION: "${ocrText}"
+            // QUESTION: "${ocrText}"
 
-Provide a detailed response that includes:
-1. Problem analysis and approach
-2. Step-by-step solution strategy
-3. Code implementation (if applicable) - ALWAYS include working code examples
-4. Time and space complexity analysis
-5. Edge cases to consider
-6. Interview tips and best practices
+            // Provide a detailed response that includes:
+            // 1. Problem analysis and approach
+            // 2. Step-by-step solution strategy
+            // 3. Code implementation (if applicable) - ALWAYS include working code examples
+            // 4. Time and space complexity analysis
+            // 5. Edge cases to consider
+            // 6. Interview tips and best practices
 
-Format your response with clear sections and use markdown for better readability. Be specific and actionable. ALWAYS include actual code implementations.`;
+            // Format your response with clear sections and use markdown for better readability. Be specific and actionable. ALWAYS include actual code implementations.`;
+             const systemPrompt = `You are an intelligent assistant that processes OCR-scanned exam or assignment text. Your job is to extract **each individual question** and provide structured answers accordingly in ${profession} ${interviewType} interviews.
 
-            const userPrompt = `Please analyze this ${interviewType} interview question for a ${profession}: ${ocrText}`;
+            Analyze the following interview question and provide comprehensive guidance.
+
+            Provide a detailed response that includes:
+            1. Carefully read the OCR text below.
+            2. Identify and number each question in the format "Question 1", "Question 2", etc.
+            3. Problem analysis and approach
+            4. Step-by-step solution strategy
+            5. Code implementation (if applicable and provide code in the language the question is asked or according to the template given in ocr text) - ALWAYS include working code examples
+            6. Time and space complexity analysis
+            7. Edge cases to consider
+            8. Interview tips and best practices
+
+            Format your response with clear sections and use markdown for better readability. Be specific and actionable. ALWAYS include actual code implementations.`;
+
+
+            // const userPrompt = `Please analyze this ${interviewType} interview question for a ${profession}: ${ocrText}`;
+
+              const userPrompt = `You are an intelligent assistant that processes OCR-scanned exam or assignment text. Your job is to extract **each individual question** and provide structured answers accordingly in ${profession} ${interviewType} interviews.
+
+              Instructions:
+              1. Carefully read the OCR text below.
+              2. Identify and number each question in the format "Question 1", "Question 2", etc.
+              3. If the question is an MCQ (Multiple Choice Question), identify the correct option and output it as:
+                Question X: Answer is (Option Letter) - (Full Answer Text)
+              4. If the question is not MCQ, summarize or explain the answer concisely.
+              5. Use the following format for each question:
+                Question X: Answer is ---- [your answer]
+              6. If the question is a coding question, provide the code in the language the question is asked or according to the template given in OCR text.
+
+              OCR Extracted Text:
+              ---
+              ${ocrText}
+              ---
+
+              Return only the structured answers for each question in the above format. Do not include any additional commentary or explanations.`;
 
             // Log the exact prompts being sent
             this.writeLog(`🤖 [AI] System Prompt: ${systemPrompt}`);
@@ -1209,13 +1230,13 @@ Format your response with clear sections and use markdown for better readability
             this.writeLog(`🤖 [AI] OCR Text: "${ocrText}"`);
 
             const completion = await this.openai.chat.completions.create({
-                model: 'gpt-3.5-turbo',
+                model: 'gpt-4',
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: userPrompt }
                 ],
-                max_tokens: 1200,
-                temperature: 0.7
+                max_tokens: 1500,
+                temperature: 0.3
             });
 
             const analysis = completion.choices[0].message.content || 'Unable to generate analysis';
@@ -1595,92 +1616,6 @@ Format your response with clear sections and use markdown for better readability
         return this.settingsWindow;
     }
 
-    private generateScreenshotAnalysis(ocrText: string, profession: string, interviewType: string): string {
-        console.log(`🤖 [AI] Generating screenshot analysis for ${profession} ${interviewType}`);
-
-        // Generate contextual AI analysis based on profession and interview type
-        const analysisTemplates = {
-            'software-engineer': {
-                'technical': `📸 **Technical Interview Analysis**
-
-**Question Detected:** ${ocrText}
-
-**Approach for Software Engineers:**
-• **Step 1:** Clarify requirements and constraints
-• **Step 2:** Discuss time and space complexity
-• **Step 3:** Start with a brute force solution
-• **Step 4:** Optimize using appropriate data structures
-• **Step 5:** Code step by step with explanations
-
-**For Binary Search specifically:**
-• Time Complexity: O(log n)
-• Space Complexity: O(1) iterative, O(log n) recursive
-• Key insight: Array must be sorted
-• Edge cases: Empty array, single element, target not found
-
-**Interview Tips:**
-• Think out loud during coding
-• Test with examples
-• Discuss trade-offs between iterative vs recursive approaches`,
-
-                'coding': `💻 **Coding Interview Analysis**
-
-**Problem:** ${ocrText}
-
-**Coding Strategy:**
-1. **Understand the problem** - Ask clarifying questions
-2. **Plan your approach** - Discuss algorithm choice
-3. **Code incrementally** - Start simple, then optimize
-4. **Test thoroughly** - Use edge cases
-
-**Binary Search Implementation Tips:**
-• Use left = 0, right = array.length - 1
-• Calculate mid = left + (right - left) / 2 (avoids overflow)
-• Update pointers based on comparison
-• Return -1 if element not found
-
-**Common Mistakes to Avoid:**
-• Off-by-one errors in loop conditions
-• Integer overflow in mid calculation
-• Forgetting to handle empty arrays`
-            }
-        };
-
-        const professionTemplates = analysisTemplates[profession as keyof typeof analysisTemplates];
-        if (professionTemplates) {
-            const template = professionTemplates[interviewType as keyof typeof professionTemplates];
-            if (template) {
-                console.log(`🤖 [AI] Using specific template for ${profession} ${interviewType}`);
-                return template;
-            }
-        }
-
-        // Fallback generic analysis
-        console.log(`🤖 [AI] Using fallback template`);
-        return `🎯 **Interview Question Analysis**
-
-**Detected:** ${ocrText}
-
-**General Approach:**
-• Break down the problem into smaller parts
-• Consider time and space complexity
-• Think about edge cases and constraints
-• Implement step by step with clear explanations
-• Test your solution with examples
-
-**Binary Search Key Points:**
-• Requires sorted input
-• Divide and conquer approach
-• O(log n) time complexity
-• Efficient for large datasets
-
-**Interview Success Tips:**
-• Communicate your thought process clearly
-• Ask clarifying questions
-• Start with a working solution, then optimize
-• Consider alternative approaches`;
-    }
-
     private setupIpcHandlers(): void {
         console.log('🔧 [IPC] Setting up IPC handlers...');
 
@@ -1918,28 +1853,29 @@ Format your response with clear sections and use markdown for better readability
                     this.writeLog(`🤖 [DEBUG] Using OpenAI for debug analysis (${session.profession} ${session.interviewType})`);
                     
                     const systemPrompt = `You are an expert code reviewer and debugging assistant specializing in ${session.profession} interviews.
+                              Given the OCR-extracted error context below (including failing examples and error messages), extract the failure details and provide only the corrected, fully working code.
+                              Analyze the following code and provide comprehensive debugging guidance:
 
-Analyze the following code and provide comprehensive debugging guidance:
+                              CODE: "${ocrText}"
 
-CODE: "${ocrText}"
+                              Provide a detailed response that includes:
+                              1. Code analysis and potential issues
+                              2. Bug identification and explanations
+                              3. Suggested fixes with code examples 
+                              4. Best practices and improvements
+                              5. Edge cases to consider
+                              6. give full working code according to the language the question is asked or according to the template given in ocr text
 
-Provide a detailed response that includes:
-1. Code analysis and potential issues
-2. Bug identification and explanations
-3. Suggested fixes with code examples
-4. Best practices and improvements
-5. Testing strategies
-
-Format your response with clear sections and use markdown for better readability. Be specific and actionable.`;
+                              Format your response with clear sections and use markdown for better readability. Be specific and actionable.`;
 
                     const completion = await this.openai.chat.completions.create({
-                        model: 'gpt-3.5-turbo',
+                        model: 'gpt-4',
                         messages: [
                             { role: 'system', content: systemPrompt },
                             { role: 'user', content: `Please debug this code: ${ocrText}` }
                         ],
-                        max_tokens: 1200,
-                        temperature: 0.7
+                        max_tokens: 1500,
+                        temperature: 0.3
                     });
 
                     debugAnalysis = completion.choices[0].message.content || 'Unable to generate debug analysis';
