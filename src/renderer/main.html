@@ -42,28 +42,150 @@
             font-size: 14px;
             margin-bottom: 10px;
         }
+
+        /* Articles Sorting Styles */
+        .App {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .navbar-header {
+            background-color: #007bff;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+
+        .layout-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 20px 0;
+        }
+
+        .form-hint {
+            margin-right: 15px;
+            font-size: 14px;
+            color: #666;
+            text-transform: uppercase;
+            font-weight: 300;
+        }
+
+        .small {
+            padding: 8px 16px;
+            margin: 0 5px;
+            font-size: 14px;
+            border: 1px solid #007bff;
+            background-color: white;
+            color: #007bff;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .small:hover {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .small.active {
+            background-color: #007bff;
+            color: white;
+            font-weight: bold;
+        }
+
+        .small:hover {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .small.active {
+            background-color: #007bff;
+            color: white;
+        }
+
+        #articles-container {
+            margin-top: 30px;
+        }
+
+        .article-item {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            background-color: #f9f9f9;
+            transition: box-shadow 0.3s ease;
+        }
+
+        .article-item:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .article-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .article-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .upvotes {
+            background-color: #28a745;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="title">Interview Assistant</div>
-        
-        <select id="profession">
-            <option value="software-engineer">Software Engineer</option>
-            <option value="data-scientist">Data Scientist</option>
-            <option value="product-manager">Product Manager</option>
-            <option value="designer">Designer</option>
-        </select>
-        
-        <select id="interviewType">
-            <option value="technical">Technical</option>
-            <option value="behavioral">Behavioral</option>
-            <option value="system-design">System Design</option>
-            <option value="coding">Coding</option>
-        </select>
-        
-        <button id="startSession">Start Session</button>
-        <button id="settings">Settings</button>
+    <div class="App">
+        <div class="navbar-header">Sorting Articles</div>
+
+        <div class="layout-row align-items-center justify-content-center my-20 navigation">
+            <label class="form-hint mb-0 text-uppercase font-weight-light">Sort By</label>
+            <button data-testid="most-upvoted-link" class="small">Most Upvoted</button>
+            <button data-testid="most-recent-link" class="small">Most Recent</button>
+        </div>
+
+        <div id="articles-container">
+            <!-- Articles will be populated here -->
+        </div>
+
+        <!-- Original Interview Assistant UI (hidden by default) -->
+        <div class="container" style="display: none;">
+            <div class="title">Interview Assistant</div>
+
+            <select id="profession">
+                <option value="software-engineer">Software Engineer</option>
+                <option value="data-scientist">Data Scientist</option>
+                <option value="product-manager">Product Manager</option>
+                <option value="designer">Designer</option>
+            </select>
+
+            <select id="interviewType">
+                <option value="technical">Technical</option>
+                <option value="behavioral">Behavioral</option>
+                <option value="system-design">System Design</option>
+                <option value="coding">Coding</option>
+            </select>
+
+            <button id="startSession">Start Session</button>
+            <button id="settings">Settings</button>
+        </div>
     </div>
     
     <script src="main-renderer.js"></script>
