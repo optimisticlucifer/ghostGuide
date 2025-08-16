@@ -29,8 +29,8 @@ export interface DocumentChunk {
 
 export class DocumentProcessor {
   private supportedExtensions = ['.txt', '.md', '.pdf', '.doc', '.docx'];
-  private chunkSize = 5000; // characters
-  private chunkOverlap = 500; // characters
+  private chunkSize = 2000; // characters
+  private chunkOverlap = 400; // characters
   private tfidf: TfIdf;
 
   constructor() {

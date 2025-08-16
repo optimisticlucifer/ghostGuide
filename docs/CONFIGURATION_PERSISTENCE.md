@@ -357,7 +357,7 @@ class ConfigurationManager {
             rag: {
                 embeddingModel: 'text-embedding-3-small',
                 chunkSize: 5000,
-                maxResults: 5
+                maxResults: 10
             },
             ui: {
                 theme: 'system',
@@ -1110,8 +1110,8 @@ class RAGDataManager {
     
     private async createChunks(document: Document): Promise<DocumentChunk[]> {
         const chunks: DocumentChunk[] = []
-        const chunkSize = 1000
-        const overlapSize = 200
+        const chunkSize = 2000
+        const overlapSize = 400
         
         let startIndex = 0
         let chunkIndex = 0
