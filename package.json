@@ -7,7 +7,7 @@
   "scripts": {
     "start": "npm run build && electron .",
     "dev": "npm run build && electron . --dev",
-    "build": "tsc",
+    "build": "tsc && cp -r src/renderer dist/",
     "build:watch": "tsc --watch",
     "clean": "rm -rf dist",
     "rebuild": "npm run clean && npm run build",
@@ -49,7 +49,10 @@
   },
   "dependencies": {
     "electron-store": "^8.1.0",
+    "mammoth": "^1.10.0",
+    "natural": "^8.1.0",
     "openai": "^4.0.0",
+    "pdf-parse": "^1.1.1",
     "screenshot-desktop": "^1.15.1",
     "tesseract.js": "^6.0.1",
     "uuid": "^9.0.0",

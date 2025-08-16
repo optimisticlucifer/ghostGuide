@@ -4,6 +4,7 @@ export interface SessionConfig {
   id: string;
   profession: string;
   interviewType: string;
+  context?: string;
   createdAt: Date;
   isActive: boolean;
 }
@@ -12,6 +13,7 @@ export interface Session {
   id: string;
   profession: string;
   interviewType: string;
+  context?: string;
   chatHistory: ChatMessage[];
   isRecording: boolean;
   isSystemRecording: boolean;

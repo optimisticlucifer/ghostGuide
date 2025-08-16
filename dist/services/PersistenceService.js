@@ -37,23 +37,12 @@ exports.PersistenceService = void 0;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const electron_1 = require("electron");
-const EncryptionService_1 = require("./EncryptionService");
 class PersistenceService {
     constructor() {
         this.dataPath = path.join(electron_1.app.getPath('userData'), 'interview-assistant');
         this.sessionsFile = path.join(this.dataPath, 'sessions.json');
         this.configFile = path.join(this.dataPath, 'config.json');
-        this.encryptionService = new EncryptionService_1.EncryptionService();
         this.ensureDataDirectory();
-        this.initializeEncryption();
-    }
-    async initializeEncryption() {
-        try {
-            await this.encryptionService.initializeKey();
-        }
-        catch (error) {
-            console.error('Failed to initialize encryption:', error);
-        }
     }
     ensureDataDirectory() {
         if (!fs.existsSync(this.dataPath)) {
@@ -143,34 +132,8 @@ class PersistenceService {
     }
     async saveAppConfig(config) {
         try {
-            // Encrypt sensitive data before saving (but don't fail if encryption fails)
+            // Save config directly without encryption
             const configToSave = { ...config };
-            // Try to encrypt API key if encryption service is available
-            if (configToSave.apiKey && this.encryptionService.isInitialized()) {
-                try {
-                    configToSave.apiKey = this.encryptionService.encrypt(configToSave.apiKey);
-                    configToSave._encrypted = true;
-                    console.log('✅ [PERSISTENCE] API key encrypted successfully');
-                }
-                catch (encryptError) {
-                    console.warn('⚠️ [PERSISTENCE] API key encryption failed, saving in plain text:', encryptError.message);
-                    // Continue without encryption - save in plain text
-                    configToSave._encrypted = false;
-                }
-            }
-            // Try to encrypt prompt library if encryption service is available
-            if (configToSave.promptLibrary && this.encryptionService.isInitialized()) {
-                try {
-                    configToSave.promptLibrary = this.encryptionService.encryptObject(configToSave.promptLibrary);
-                    configToSave._promptsEncrypted = true;
-                    console.log('✅ [PERSISTENCE] Prompt library encrypted successfully');
-                }
-                catch (encryptError) {
-                    console.warn('⚠️ [PERSISTENCE] Prompt library encryption failed, saving in plain text:', encryptError.message);
-                    // Continue without encryption - save in plain text
-                    configToSave._promptsEncrypted = false;
-                }
-            }
             await fs.promises.writeFile(this.configFile, JSON.stringify(configToSave, null, 2), 'utf8');
             console.log('✅ [PERSISTENCE] App config saved successfully');
         }
@@ -186,28 +149,12 @@ class PersistenceService {
             }
             const data = await fs.promises.readFile(this.configFile, 'utf8');
             const config = JSON.parse(data);
-            // Decrypt sensitive data if encrypted
-            if (config._encrypted && config.apiKey && this.encryptionService.isInitialized()) {
-                try {
-                    config.apiKey = this.encryptionService.decrypt(config.apiKey);
-                    delete config._encrypted;
-                }
-                catch (error) {
-                    console.warn('Failed to decrypt API key, resetting to empty:', error.message);
-                    config.apiKey = '';
-                    delete config._encrypted;
-                }
+            // Clean up old encryption flags if they exist
+            if (config._encrypted) {
+                delete config._encrypted;
             }
-            if (config._promptsEncrypted && config.promptLibrary && this.encryptionService.isInitialized()) {
-                try {
-                    config.promptLibrary = this.encryptionService.decryptObject(config.promptLibrary);
-                    delete config._promptsEncrypted;
-                }
-                catch (error) {
-                    console.warn('Failed to decrypt prompt library, resetting to empty:', error.message);
-                    config.promptLibrary = {};
-                    delete config._promptsEncrypted;
-                }
+            if (config._promptsEncrypted) {
+                delete config._promptsEncrypted;
             }
             return config;
         }

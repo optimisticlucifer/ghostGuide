@@ -14,7 +14,7 @@ class ChatService {
     /**
      * Send a regular chat message and get AI response
      */
-    async sendMessage(sessionId, message) {
+    async sendMessage(sessionId, message, isInitialization = false) {
         try {
             const session = this.sessionManager.getSession(sessionId);
             if (!session) {

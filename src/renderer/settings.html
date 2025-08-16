@@ -8,11 +8,12 @@
             margin: 0;
             padding: 20px;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: #1e1e1e;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            width: 600px;
-            height: 700px;
+            min-width: 650px;
+            min-height: 750px;
             overflow-y: auto;
+            box-sizing: border-box;
         }
         
         .container {
@@ -202,6 +203,7 @@
         <div class="tabs">
             <div class="tab active" data-tab="general">General</div>
             <div class="tab" data-tab="api">API Keys</div>
+            <div class="tab" data-tab="globalrag">Global RAG</div>
             <div class="tab" data-tab="prompts">Prompt Library</div>
         </div>
         
@@ -262,6 +264,71 @@
                 </div>
                 
                 <div class="status hidden" id="apiKeyStatus"></div>
+            </div>
+        </div>
+        
+        <div class="tab-content" id="globalrag">
+            <div class="section">
+                <div class="section-title">Global RAG Knowledge Base</div>
+                <p style="color: #b0b0b0; font-size: 14px; margin-bottom: 15px;">Global RAG provides contextual assistance by indexing your documents and making them searchable across all interview sessions.</p>
+                
+                <div class="form-group">
+                    <label>Status</label>
+                    <div id="globalRagStatusInfo" style="padding: 10px; background: #333; border-radius: 4px; font-size: 14px;">
+                        Loading...
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="selectedFolderPath">Documents Folder</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="text" id="selectedFolderPath" readonly placeholder="No folder selected" style="flex: 1;" />
+                        <button id="selectGlobalRagFolder">Browse...</button>
+                    </div>
+                    <small style="color: #b0b0b0; font-size: 12px; margin-top: 5px; display: block;">Supported formats: TXT, MD, PDF, DOC, DOCX</small>
+                </div>
+                
+                <div class="button-row">
+                    <button id="refreshGlobalRag" class="secondary" title="Clear existing data and re-index the selected folder">🔄 Refresh Global RAG</button>
+                    <button id="supportGlobalRag" title="Index documents from the selected folder">📚 Support Global RAG</button>
+                </div>
+                
+                <div class="status hidden" id="globalRagStatus"></div>
+                
+                <!-- Progress indicator -->
+                <div class="hidden" id="globalRagProgress" style="margin-top: 15px;">
+                    <div style="background: #333; height: 20px; border-radius: 4px; overflow: hidden;">
+                        <div id="globalRagProgressBar" style="background: #007acc; height: 100%; width: 0%; transition: width 0.3s;"></div>
+                    </div>
+                    <div id="globalRagProgressText" style="font-size: 12px; color: #b0b0b0; margin-top: 5px;">Processing...</div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <div class="section-title">Statistics</div>
+                
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
+                    <div style="background: #333; padding: 10px; border-radius: 4px; text-align: center;">
+                        <div id="totalDocuments" style="font-size: 24px; font-weight: bold; color: #007acc;">0</div>
+                        <div style="font-size: 12px; color: #b0b0b0;">Documents</div>
+                    </div>
+                    <div style="background: #333; padding: 10px; border-radius: 4px; text-align: center;">
+                        <div id="totalChunks" style="font-size: 24px; font-weight: bold; color: #28a745;">0</div>
+                        <div style="font-size: 12px; color: #b0b0b0;">Text Chunks</div>
+                    </div>
+                    <div style="background: #333; padding: 10px; border-radius: 4px; text-align: center;">
+                        <div id="databaseSize" style="font-size: 16px; font-weight: bold; color: #ffc107;">0 MB</div>
+                        <div style="font-size: 12px; color: #b0b0b0;">Database Size</div>
+                    </div>
+                    <div style="background: #333; padding: 10px; border-radius: 4px; text-align: center;">
+                        <div id="lastUpdate" style="font-size: 12px; color: #b0b0b0;">Never</div>
+                        <div style="font-size: 12px; color: #b0b0b0;">Last Updated</div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 15px;">
+                    <button id="clearGlobalRag" class="secondary" style="background: #c62828; border-color: #c62828;" title="Remove all indexed documents">🗑️ Clear Knowledge Base</button>
+                </div>
             </div>
         </div>
         

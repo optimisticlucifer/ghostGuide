@@ -18,6 +18,7 @@ class SessionManager {
             id: sessionId, // Use the same sessionId for both map key and session object
             profession: config.profession,
             interviewType: config.interviewType,
+            context: config.context,
             chatHistory: [],
             isRecording: false,
             isSystemRecording: false,

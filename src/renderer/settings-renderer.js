@@ -38,6 +38,22 @@ class SettingsRenderer {
     this.testApiKey = document.getElementById('testApiKey');
     this.saveApiKey = document.getElementById('saveApiKey');
     
+    // Global RAG
+    this.globalRagStatusInfo = document.getElementById('globalRagStatusInfo');
+    this.selectedFolderPath = document.getElementById('selectedFolderPath');
+    this.selectGlobalRagFolder = document.getElementById('selectGlobalRagFolder');
+    this.refreshGlobalRag = document.getElementById('refreshGlobalRag');
+    this.supportGlobalRag = document.getElementById('supportGlobalRag');
+    this.clearGlobalRag = document.getElementById('clearGlobalRag');
+    this.globalRagStatus = document.getElementById('globalRagStatus');
+    this.globalRagProgress = document.getElementById('globalRagProgress');
+    this.globalRagProgressBar = document.getElementById('globalRagProgressBar');
+    this.globalRagProgressText = document.getElementById('globalRagProgressText');
+    this.totalDocuments = document.getElementById('totalDocuments');
+    this.totalChunks = document.getElementById('totalChunks');
+    this.databaseSize = document.getElementById('databaseSize');
+    this.lastUpdate = document.getElementById('lastUpdate');
+    
     // Prompt library
     this.promptProfession = document.getElementById('promptProfession');
     this.promptInterviewType = document.getElementById('promptInterviewType');
@@ -60,6 +76,12 @@ class SettingsRenderer {
     // API settings
     this.testApiKey.addEventListener('click', () => this.testApiKeyHandler());
     this.saveApiKey.addEventListener('click', () => this.saveApiKeyHandler());
+    
+    // Global RAG
+    this.selectGlobalRagFolder.addEventListener('click', () => this.selectGlobalRagFolderHandler());
+    this.supportGlobalRag.addEventListener('click', () => this.supportGlobalRagHandler());
+    this.refreshGlobalRag.addEventListener('click', () => this.refreshGlobalRagHandler());
+    this.clearGlobalRag.addEventListener('click', () => this.clearGlobalRagHandler());
     
     // Prompt library
     this.promptProfession.addEventListener('change', () => this.loadPromptTemplate());
@@ -97,6 +119,40 @@ class SettingsRenderer {
     
     ipcRenderer.on('api-key-invalid', (event, error) => {
       this.showStatus(this.apiKeyStatus, `API key is invalid: ${error}`, 'error');
+    });
+    
+    // Global RAG IPC listeners
+    ipcRenderer.on('globalrag-folder-selected', (event, folderPath) => {
+      this.selectedFolderPath.value = folderPath;
+      this.loadGlobalRagStats();
+    });
+    
+    ipcRenderer.on('globalrag-stats', (event, stats) => {
+      this.updateGlobalRagStats(stats);
+    });
+    
+    ipcRenderer.on('globalrag-indexing-progress', (event, progress) => {
+      this.updateIndexingProgress(progress);
+    });
+    
+    ipcRenderer.on('globalrag-indexing-complete', (event, stats) => {
+      this.hideProgress();
+      this.showStatus(this.globalRagStatus, `Successfully indexed ${stats.documentsProcessed} documents with ${stats.totalChunks} chunks`, 'success');
+      this.loadGlobalRagStats();
+    });
+    
+    ipcRenderer.on('globalrag-indexing-error', (event, error) => {
+      this.hideProgress();
+      this.showStatus(this.globalRagStatus, `Error during indexing: ${error}`, 'error');
+    });
+    
+    ipcRenderer.on('globalrag-cleared', () => {
+      this.showStatus(this.globalRagStatus, 'Knowledge base cleared successfully', 'success');
+      this.loadGlobalRagStats();
+    });
+    
+    ipcRenderer.on('globalrag-error', (event, error) => {
+      this.showStatus(this.globalRagStatus, `Error: ${error}`, 'error');
     });
     
     // Prompt library
@@ -143,6 +199,9 @@ class SettingsRenderer {
     
     // Load persona table
     this.loadPersonaTable();
+    
+    // Load Global RAG stats
+    this.loadGlobalRagStats();
   }
 
   updateFormWithConfig(config) {
@@ -294,6 +353,137 @@ class SettingsRenderer {
     setTimeout(() => {
       element.classList.add('hidden');
     }, 5000);
+  }
+
+  // Global RAG handlers
+  async selectGlobalRagFolderHandler() {
+    try {
+      const result = await ipcRenderer.invoke('global-rag-select-folder');
+      if (result.success && result.folderPath) {
+        this.selectedFolderPath.value = result.folderPath;
+        this.showStatus(this.globalRagStatus, `Selected: ${result.folderPath}`, 'success');
+      } else {
+        this.showStatus(this.globalRagStatus, result.message || 'No folder selected', 'warning');
+      }
+    } catch (error) {
+      this.showStatus(this.globalRagStatus, `Error: ${error.message}`, 'error');
+    }
+  }
+
+  async supportGlobalRagHandler() {
+    const folderPath = this.selectedFolderPath.value;
+    if (!folderPath) {
+      this.showStatus(this.globalRagStatus, 'Please select a documents folder first', 'warning');
+      return;
+    }
+    
+    try {
+      this.showProgress('Indexing documents...');
+      const result = await ipcRenderer.invoke('global-rag-add-folder', folderPath);
+      this.hideProgress();
+      
+      if (result.success) {
+        this.showStatus(this.globalRagStatus, `Successfully indexed ${result.processedCount} documents from ${result.folderPath}`, 'success');
+        this.loadGlobalRagStats();
+      } else {
+        this.showStatus(this.globalRagStatus, result.message || 'Failed to index folder', 'error');
+      }
+    } catch (error) {
+      this.hideProgress();
+      this.showStatus(this.globalRagStatus, `Error: ${error.message}`, 'error');
+    }
+  }
+
+  async refreshGlobalRagHandler() {
+    if (confirm('This will clear all existing data and re-index the folder. Continue?')) {
+      try {
+        this.showProgress('Clearing database and re-indexing...');
+        const result = await ipcRenderer.invoke('global-rag-refresh');
+        this.hideProgress();
+        
+        if (result.success) {
+          this.showStatus(this.globalRagStatus, `Successfully refreshed knowledge base with ${result.processedCount} documents`, 'success');
+          this.loadGlobalRagStats();
+        } else {
+          this.showStatus(this.globalRagStatus, result.message || 'Failed to refresh knowledge base', 'error');
+        }
+      } catch (error) {
+        this.hideProgress();
+        this.showStatus(this.globalRagStatus, `Error: ${error.message}`, 'error');
+      }
+    }
+  }
+
+  async clearGlobalRagHandler() {
+    if (confirm('This will permanently delete all indexed documents. Are you sure?')) {
+      try {
+        const result = await ipcRenderer.invoke('global-rag-clear');
+        if (result.success) {
+          this.showStatus(this.globalRagStatus, 'Knowledge base cleared successfully', 'success');
+          this.loadGlobalRagStats();
+        } else {
+          this.showStatus(this.globalRagStatus, result.message || 'Failed to clear knowledge base', 'error');
+        }
+      } catch (error) {
+        this.showStatus(this.globalRagStatus, `Error: ${error.message}`, 'error');
+      }
+    }
+  }
+
+  async loadGlobalRagStats() {
+    try {
+      const stats = await ipcRenderer.invoke('global-rag-get-status');
+      this.updateGlobalRagStats(stats);
+    } catch (error) {
+      console.error('Failed to load Global RAG stats:', error);
+    }
+  }
+
+  updateGlobalRagStats(stats) {
+    this.totalDocuments.textContent = stats.totalDocuments || '0';
+    this.totalChunks.textContent = stats.totalChunks || '0';
+    this.databaseSize.textContent = this.formatFileSize(stats.databaseSize || 0);
+    this.lastUpdate.textContent = stats.lastUpdate ? new Date(stats.lastUpdate).toLocaleString() : 'Never';
+    
+    // Update folder path if available
+    if (stats.folderPath) {
+      this.selectedFolderPath.value = stats.folderPath;
+    }
+    
+    // Update status info
+    if (stats.totalDocuments > 0) {
+      this.globalRagStatusInfo.innerHTML = `<span style="color: #28a745;">✓ Active</span> - ${stats.totalDocuments} documents indexed`;
+    } else {
+      this.globalRagStatusInfo.innerHTML = `<span style="color: #ffc107;">⚠ Inactive</span> - No documents indexed`;
+    }
+  }
+
+  formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  showProgress(message) {
+    this.globalRagProgress.classList.remove('hidden');
+    this.globalRagProgressText.textContent = message;
+    this.globalRagProgressBar.style.width = '0%';
+  }
+
+  updateIndexingProgress(progress) {
+    if (this.globalRagProgress.classList.contains('hidden')) {
+      this.showProgress('Processing documents...');
+    }
+    
+    const percentage = Math.round((progress.current / progress.total) * 100);
+    this.globalRagProgressBar.style.width = `${percentage}%`;
+    this.globalRagProgressText.textContent = `Processing ${progress.current}/${progress.total} documents (${progress.currentFile})`;
+  }
+
+  hideProgress() {
+    this.globalRagProgress.classList.add('hidden');
   }
 }
 

@@ -80,15 +80,37 @@ export class WindowManager {
     }
     
     const settingsWindow = new BrowserWindow({
-      width: 650,
-      height: 750,
+      width: 750,
+      height: 800,
+      minWidth: 650,
+      minHeight: 750,
       frame: true,
-      resizable: false,
+      resizable: true,
       skipTaskbar: false,
       webPreferences: {
         nodeIntegration: true,
-        contextIsolation: false
-      }
+        contextIsolation: false,
+        // Additional security to prevent detection
+        backgroundThrottling: false,
+        offscreen: false
+      },
+      title: 'Interview Assistant - Settings',
+      alwaysOnTop: true,
+      // Enhanced stealth properties
+      show: true,
+      hasShadow: false,
+      focusable: true,
+      minimizable: false,
+      maximizable: true,
+      closable: true,
+      movable: true,
+      // macOS specific stealth properties
+      hiddenInMissionControl: true,
+      fullscreenable: false,
+      // Additional stealth properties
+      titleBarStyle: 'default',
+      vibrancy: 'under-window',
+      visualEffectState: 'inactive'
     });
     
     // Load settings window HTML

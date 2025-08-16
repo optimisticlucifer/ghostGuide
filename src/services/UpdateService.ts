@@ -5,7 +5,6 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { EventEmitter } from 'events';
 import { ConfigurationManager } from './ConfigurationManager';
-import { EncryptionService } from './EncryptionService';
 import { ErrorHandler } from './ErrorHandler';
 
 export interface UpdateInfo {
@@ -34,7 +33,6 @@ export interface BackupInfo {
 
 export class UpdateService extends EventEmitter {
   private configManager: ConfigurationManager;
-  private encryptionService: EncryptionService;
   private errorHandler: ErrorHandler;
   private updateCheckInterval: NodeJS.Timeout | null = null;
   private backupDir: string;
@@ -42,12 +40,10 @@ export class UpdateService extends EventEmitter {
 
   constructor(
     configManager: ConfigurationManager,
-    encryptionService: EncryptionService,
     errorHandler: ErrorHandler
   ) {
     super();
     this.configManager = configManager;
-    this.encryptionService = encryptionService;
     this.errorHandler = errorHandler;
     this.currentVersion = app.getVersion();
     this.backupDir = path.join(app.getPath('userData'), 'backups');
@@ -239,14 +235,8 @@ export class UpdateService extends EventEmitter {
       const destPath = path.join(backupPath, file);
 
       if (fs.existsSync(sourcePath)) {
-        // Encrypt sensitive configuration files
-        if (file === 'config.json' || file === 'sessions.json') {
-          const data = fs.readFileSync(sourcePath, 'utf8');
-          const encrypted = await this.encryptionService.encrypt(data);
-          fs.writeFileSync(destPath + '.encrypted', encrypted);
-        } else {
-          fs.copyFileSync(sourcePath, destPath);
-        }
+        // Copy files without encryption
+        fs.copyFileSync(sourcePath, destPath);
       }
     }
   }
@@ -372,14 +362,8 @@ export class UpdateService extends EventEmitter {
       const sourcePath = path.join(backupConfigPath, file);
       const destPath = path.join(userDataPath, file.replace('.encrypted', ''));
 
-      if (file.endsWith('.encrypted')) {
-        // Decrypt encrypted files
-        const encrypted = fs.readFileSync(sourcePath, 'utf8');
-        const decrypted = await this.encryptionService.decrypt(encrypted);
-        fs.writeFileSync(destPath, decrypted);
-      } else {
-        fs.copyFileSync(sourcePath, destPath);
-      }
+      // Copy files directly without decryption
+      fs.copyFileSync(sourcePath, destPath);
     }
   }
 

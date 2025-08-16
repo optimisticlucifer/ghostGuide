@@ -46,7 +46,7 @@ export class ChatService {
   /**
    * Send a regular chat message and get AI response
    */
-  async sendMessage(sessionId: string, message: string): Promise<string> {
+  async sendMessage(sessionId: string, message: string, isInitialization: boolean = false): Promise<string> {
     try {
       const session = this.sessionManager.getSession(sessionId);
       if (!session) {
