@@ -9,6 +9,7 @@ import { CaptureService } from '../services/CaptureService';
 import { ConfigurationManager } from '../services/ConfigurationManager';
 import { SessionManager } from '../services/SessionManager';
 import { WindowManager } from '../services/WindowManager';
+import { PromptLibraryService } from '../services/PromptLibraryService';
 import { AudioSource, ActionType } from '../types';
 import { CaptureType } from '../services/CaptureService';
 
@@ -22,6 +23,7 @@ export interface IPCServices {
   configurationManager: ConfigurationManager;
   sessionManager: SessionManager;
   windowManager: WindowManager;
+  promptLibraryService: PromptLibraryService;
   openai: OpenAI | null;
 }
 
@@ -993,40 +995,9 @@ export class IPCController {
       throw new Error('OpenAI client not initialized');
     }
 
-    const systemPrompt = `You are an intelligent assistant that processes OCR-scanned exam or assignment text. Your job is to extract **each individual question** and provide structured answers accordingly in ${profession} ${interviewType} interviews.
-
-Analyze the following interview question and provide comprehensive guidance.
-
-Provide a detailed response that includes:
-1. Carefully read the OCR text below.
-2. Identify and number each question in the format "Question 1", "Question 2", etc.
-3. Problem analysis and approach
-4. Step-by-step solution strategy
-5. Code implementation (if applicable and provide code in the language the question is asked or according to the template given in ocr text) - ALWAYS include working code examples
-6. Time and space complexity analysis
-7. Edge cases to consider
-8. Interview tips and best practices
-
-Format your response with clear sections and use markdown for better readability. Be specific and actionable. ALWAYS include actual code implementations.`;
-
-    const userPrompt = `You are an intelligent assistant that processes OCR-scanned exam or assignment text. Your job is to extract **each individual question** and provide structured answers accordingly in ${profession} ${interviewType} interviews.
-
-Instructions:
-1. Carefully read the OCR text below.
-2. Identify and number each question in the format "Question 1", "Question 2", etc.
-3. If the question is an MCQ (Multiple Choice Question), identify the correct option and output it as:
-  Question X: Answer is (Option Letter) - (Full Answer Text)
-4. If the question is not MCQ, summarize or explain the answer concisely.
-5. Use the following format for each question:
-  Question X: Answer is ---- [your answer]
-6. If the question is a coding question, provide the code in the language the question is asked or according to the template given in OCR text.
-
-OCR Extracted Text:
----
-${ocrText}
----
-
-Return only the structured answers for each question in the above format. Do not include any additional commentary or explanations.`;
+    // Use centralized prompt management
+    const systemPrompt = this.services.promptLibraryService.getOpenAISystemPrompt(profession, interviewType);
+    const userPrompt = this.services.promptLibraryService.getOpenAIUserPrompt(profession, interviewType, ocrText);
 
     const completion = await this.services.openai.chat.completions.create({
       model: 'gpt-4',
@@ -1042,36 +1013,8 @@ Return only the structured answers for each question in the above format. Do not
   }
 
   private generateFallbackAnalysis(ocrText: string, profession: string, interviewType: string): string {
-    return `📸 **Interview Question Analysis**
-
-**Question Detected:** ${ocrText}
-
-**Analysis for ${profession} - ${interviewType} Interview:**
-
-**Approach:**
-• Break down the problem into smaller components
-• Identify the core requirements and constraints
-• Consider time and space complexity implications
-• Think about edge cases and error handling
-
-**General Strategy:**
-1. **Clarify Requirements** - Ask questions about input/output format
-2. **Plan Your Approach** - Discuss algorithm choice and data structures
-3. **Implement Step by Step** - Code incrementally with explanations
-4. **Test and Optimize** - Verify with examples and optimize if needed
-
-**Interview Tips:**
-• Think out loud during problem solving
-• Start with a brute force solution, then optimize
-• Discuss trade-offs between different approaches
-• Test your solution with edge cases
-
-**⚠️ Note:** This is a basic analysis. For personalized, AI-powered assistance with detailed code examples and specific guidance, please configure your OpenAI API key in Settings.
-
-**Next Steps:**
-1. Go to Settings (⚙️ button)
-2. Add your OpenAI API key
-3. Get intelligent, context-aware analysis for every screenshot!`;
+    // Use centralized fallback analysis prompt
+    return this.services.promptLibraryService.getFallbackAnalysisPrompt(ocrText, profession, interviewType);
   }
 
   private generateFallbackDebugAnalysis(ocrText: string, profession: string): string {

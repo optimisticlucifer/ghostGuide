@@ -1,4 +1,4 @@
-import { ChatMessage, ActionType, AudioSource } from '../types';
+import { ChatMessage, ActionType, AudioSource, AudioPromptType } from '../types';
 import { ConfigurationManager } from './ConfigurationManager';
 import { PromptLibraryService } from './PromptLibraryService';
 import { SessionManager } from './SessionManager';
@@ -187,15 +187,22 @@ export class ChatService {
         throw new Error('Session not found');
       }
 
-      // Create coaching request based on source
-      let coachingRequest: string;
+      // Create coaching request based on source using centralized prompts
+      let audioType: AudioPromptType;
       if (source === AudioSource.SYSTEM) {
-        coachingRequest = `🎯 **INTERVIEWER QUESTION DETECTED:**\n\n"${transcript}"\n\nThis is what the interviewer just asked. Please help me:\n1. Understand what they're looking for\n2. Structure a strong response\n3. Provide key talking points\n4. Suggest any clarifying questions I should ask\n\nTailor your advice for this ${session.profession} ${session.interviewType} interview.`;
+        audioType = AudioPromptType.INTERVIEWER_QUESTION;
       } else if (source === AudioSource.INTERVIEWEE) {
-        coachingRequest = `🎙️ **MY RESPONSE ANALYSIS:**\n\n"${transcript}"\n\nThis is what I just said in response. Please provide:\n1. Feedback on my answer quality\n2. What I did well\n3. Areas for improvement\n4. Suggestions for follow-up points\n5. How to strengthen similar responses\n\nEvaluate this for a ${session.profession} ${session.interviewType} interview.`;
+        audioType = AudioPromptType.INTERVIEWEE_RESPONSE;
       } else {
-        coachingRequest = `📝 **INTERVIEW TRANSCRIPT:**\n\n"${transcript}"\n\nPlease analyze this interview exchange and provide relevant guidance for this ${session.profession} ${session.interviewType} interview.`;
+        audioType = AudioPromptType.GENERAL_TRANSCRIPT;
       }
+      
+      const coachingRequest = this.promptLibraryService.getAudioCoachingPrompt(
+        audioType,
+        session.profession,
+        session.interviewType,
+        transcript
+      );
 
       // ✅ CRITICAL: Save the transcript as a user message to maintain context
       const timestamp = new Date();

@@ -434,6 +434,142 @@ You are an expert ${professionTitle} interview coach. Please provide comprehensi
         keysToDelete.forEach(key => this.promptCache.delete(key));
     }
     /**
+     * Get audio coaching prompt based on source and context
+     */
+    getAudioCoachingPrompt(audioType, profession, interviewType, transcript) {
+        const cacheKey = `audio_${audioType}_${profession}_${interviewType}`;
+        const professionTitle = profession.replace('-', ' ');
+        switch (audioType) {
+            case types_1.AudioPromptType.INTERVIEWER_QUESTION:
+                return `🎯 **INTERVIEWER QUESTION DETECTED:**\n\n"${transcript}"\n\nThis is what the interviewer just asked. Please help me:\n1. Understand what they're looking for\n2. Structure a strong response\n3. Provide key talking points\n4. Suggest any clarifying questions I should ask\n\nTailor your advice for this ${professionTitle} ${interviewType} interview.`;
+            case types_1.AudioPromptType.INTERVIEWEE_RESPONSE:
+                return `🎙️ **MY RESPONSE ANALYSIS:**\n\n"${transcript}"\n\nThis is what I just said in response. Please provide:\n1. Feedback on my answer quality\n2. What I did well\n3. Areas for improvement\n4. Suggestions for follow-up points\n5. How to strengthen similar responses\n\nEvaluate this for a ${professionTitle} ${interviewType} interview.`;
+            case types_1.AudioPromptType.GENERAL_TRANSCRIPT:
+            default:
+                return `📝 **INTERVIEW TRANSCRIPT:**\n\n"${transcript}"\n\nPlease analyze this interview exchange and provide relevant guidance for this ${professionTitle} ${interviewType} interview.`;
+        }
+    }
+    /**
+     * Get OpenAI system prompt for screenshot analysis
+     */
+    getOpenAISystemPrompt(profession, interviewType) {
+        const professionTitle = profession.replace('-', ' ');
+        return `You are an intelligent assistant that processes OCR-scanned exam or assignment text. Your job is to extract **each individual question** and provide structured answers accordingly in ${professionTitle} ${interviewType} interviews.
+
+Analyze the following interview question and provide comprehensive guidance.
+
+Provide a detailed response that includes:
+1. Carefully read the OCR text below.
+2. Identify and number each question in the format "Question 1", "Question 2", etc.
+3. Problem analysis and approach
+4. Step-by-step solution strategy
+5. Code implementation (if applicable and provide code in the language the question is asked or according to the template given in ocr text) - ALWAYS include working code examples
+6. Time and space complexity analysis
+7. Edge cases to consider
+8. Interview tips and best practices
+
+Format your response with clear sections and use markdown for better readability. Be specific and actionable. ALWAYS include actual code implementations.`;
+    }
+    /**
+     * Get OpenAI user prompt for screenshot analysis
+     */
+    getOpenAIUserPrompt(profession, interviewType, ocrText) {
+        const professionTitle = profession.replace('-', ' ');
+        return `You are an intelligent assistant that processes OCR-scanned exam or assignment text. Your job is to extract **each individual question** and provide structured answers accordingly in ${professionTitle} ${interviewType} interviews.
+
+Instructions:
+1. Carefully read the OCR text below.
+2. Identify and number each question in the format "Question 1", "Question 2", etc.
+3. If the question is an MCQ (Multiple Choice Question), identify the correct option and output it as:
+  Question X: Answer is (Option Letter) - (Full Answer Text)
+4. If the question is not MCQ, summarize or explain the answer concisely.
+5. Use the following format for each question:
+  Question X: Answer is ---- [your answer]
+6. If the question is a coding question, provide the code in the language the question is asked or according to the template given in OCR text.
+
+OCR Extracted Text:
+---
+${ocrText}
+---
+
+Return only the structured answers for each question in the above format. Do not include any additional commentary or explanations.`;
+    }
+    /**
+     * Get fallback analysis template
+     */
+    getFallbackAnalysisPrompt(ocrText, profession, interviewType) {
+        const professionTitle = profession.replace('-', ' ');
+        return `📸 **Interview Question Analysis**
+
+**Question Detected:** ${ocrText}
+
+**Analysis for ${professionTitle} - ${interviewType} Interview:**
+
+**Approach:**
+• Break down the problem into smaller components
+• Identify the core requirements and constraints
+• Consider time and space complexity implications
+• Think about edge cases and error handling
+
+**General Strategy:**
+1. **Clarify Requirements** - Ask questions about input/output format
+2. **Plan Your Approach** - Discuss algorithm choice and data structures
+3. **Implement Step by Step** - Code incrementally with explanations
+4. **Test and Optimize** - Verify with examples and optimize if needed
+
+**Interview Tips:**
+• Think out loud during problem solving
+• Start with a brute force solution, then optimize
+• Discuss trade-offs between different approaches
+• Test your solution with edge cases
+
+**⚠️ Note:** This is a basic analysis. For personalized, AI-powered assistance with detailed code examples and specific guidance, please configure your OpenAI API key in Settings.
+
+**Next Steps:**
+1. Go to Settings (⚙️ button)
+2. Add your OpenAI API key
+3. Get intelligent, context-aware analysis for every screenshot!`;
+    }
+    /**
+     * Get fallback debug analysis template
+     */
+    getFallbackDebugAnalysisPrompt(ocrText, profession) {
+        const professionTitle = profession.replace('-', ' ');
+        return `🐛 **Code Debug Analysis**
+
+**Code Detected:** ${ocrText}
+
+**Debug Analysis for ${professionTitle}:**
+
+**Potential Issues to Check:**
+• **Null Pointer Exceptions** - Check for null references before use
+• **Array Bounds** - Verify array indices are within valid range
+• **Logic Errors** - Review conditional statements and loops
+• **Memory Leaks** - Ensure proper resource cleanup
+• **Type Mismatches** - Verify variable types and conversions
+
+**Common Debugging Steps:**
+1. **Add Logging** - Insert debug statements to trace execution
+2. **Check Inputs** - Validate all input parameters
+3. **Test Edge Cases** - Try boundary conditions and null inputs
+4. **Review Algorithms** - Verify logic matches intended behavior
+5. **Use Debugger** - Step through code line by line
+
+**Best Practices:**
+• Use meaningful variable names
+• Add proper error handling
+• Write unit tests for functions
+• Document complex logic
+• Follow coding standards
+
+**⚠️ Note:** This is a basic debug analysis. For detailed, AI-powered code review with specific bug identification and fixes, please configure your OpenAI API key in Settings.
+
+**Next Steps:**
+1. Go to Settings (⚙️ button)
+2. Add your OpenAI API key
+3. Get intelligent, context-aware debugging assistance!`;
+    }
+    /**
      * Check if variable name is valid
      */
     isValidVariableName(name) {

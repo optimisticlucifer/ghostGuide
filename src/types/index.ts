@@ -87,6 +87,20 @@ export enum ActionType {
   GENERAL = 'general'
 }
 
+export enum PromptCategory {
+  SYSTEM = 'system',
+  ACTION = 'action',
+  AUDIO_COACHING = 'audio_coaching',
+  FALLBACK = 'fallback',
+  OPENAI_SYSTEM = 'openai_system'
+}
+
+export enum AudioPromptType {
+  INTERVIEWER_QUESTION = 'interviewer_question',
+  INTERVIEWEE_RESPONSE = 'interviewee_response',
+  GENERAL_TRANSCRIPT = 'general_transcript'
+}
+
 export enum AudioSource {
   INTERVIEWER = 'internal',
   INTERVIEWEE = 'microphone',

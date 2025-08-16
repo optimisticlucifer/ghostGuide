@@ -228,6 +228,7 @@ export class ApplicationController {
       configurationManager: this.services.configurationManager,
       sessionManager: this.services.sessionManager,
       windowManager: this.services.windowManager,
+      promptLibraryService: this.services.promptLibraryService,
       openai: this.openai
     };
   }
