@@ -40,8 +40,8 @@ const crypto_1 = require("crypto");
 class RAGService {
     constructor() {
         this.knowledgeBases = new Map();
-        this.maxChunkSize = 10000; // Characters per chunk
-        this.overlapSize = 2000; // Overlap between chunks
+        this.maxChunkSize = 1000; // Characters per chunk
+        this.overlapSize = 200; // Overlap between chunks
         // Initialize RAG service
     }
     /**

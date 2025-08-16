@@ -13,8 +13,8 @@ interface DocumentChunk {
 
 export class RAGService {
   private knowledgeBases: Map<string, KnowledgeBase> = new Map();
-  private maxChunkSize = 5000; // Characters per chunk
-  private overlapSize = 500; // Overlap between chunks
+  private maxChunkSize = 1000; // Characters per chunk
+  private overlapSize = 200; // Overlap between chunks
 
   constructor() {
     // Initialize RAG service
