@@ -216,38 +216,38 @@
     "task_8": {
       "title": "Enhanced Screenshot Capture Flow",
       "description": "Multi-step screenshot capture with options (capture more, left half, right half)",
-      "status": "not_started",
+      "status": "completed",
       "priority": "high",
       "estimated_hours": 6,
       "subtasks": {
         "8.1": {
           "title": "Refactor screenshot capture logic",
           "description": "Store OCR text in memory instead of immediate LLM send",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/CaptureService.ts", "src/services/OCRService.ts"]
         },
         "8.2": {
           "title": "Create screenshot action buttons UI",
           "description": "Add chat bubble with 4 buttons: capture more, left half, right half, no need",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/renderer/session-renderer.js"]
         },
         "8.3": {
           "title": "Implement full screen recapture",
           "description": "Capture more functionality with OCR text append",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/CaptureService.ts"]
         },
         "8.4": {
           "title": "Implement half-screen capture",
           "description": "Left and right half screen capture with OCR append",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/CaptureService.ts"]
         },
         "8.5": {
           "title": "Apply same logic to debug button",
           "description": "Implement similar multi-step flow for debug functionality",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/renderer/session-renderer.js", "src/services/ChatService.ts"]
         }
       }
