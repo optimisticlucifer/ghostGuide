@@ -299,8 +299,40 @@ class AudioService {
                 }
             }
             recording.isActive = false;
-            console.log(`Audio recording stopped for session: ${sessionId}`);
-            // 🎯 RETURN ACCUMULATED TRANSCRIPTION instead of processing full audio
+            console.log(`🎤 [AUDIO] Recording stopped for session: ${sessionId}`);
+            // 🚨 CRITICAL FIX: Process any remaining audio from the final segment before returning
+            console.log(`🎤 [FINAL] Processing final audio segment for session: ${sessionId}`);
+            if (recording.outputFile && fs.existsSync(recording.outputFile)) {
+                try {
+                    // Extract and transcribe the final audio segment to capture the last 5-7 seconds
+                    const finalSegmentFile = path.join(this.tempDir, `final-${sessionId}-${Date.now()}.wav`);
+                    // Extract the last 10 seconds of audio to ensure we capture everything
+                    await this.extractFinalAudioSegment(recording.outputFile, finalSegmentFile, 10000);
+                    // Transcribe the final segment
+                    const finalTranscription = await this.transcribeAudioSegment(finalSegmentFile);
+                    if (finalTranscription && finalTranscription.trim().length > 0) {
+                        // Add final transcription to accumulated transcription
+                        if (recording.accumulatedTranscription.length > 0) {
+                            recording.accumulatedTranscription += ' ';
+                        }
+                        recording.accumulatedTranscription += finalTranscription;
+                        console.log(`🎤 [FINAL] Added final transcription: "${finalTranscription}"`);
+                        console.log(`🎤 [FINAL] Complete accumulated transcription: "${recording.accumulatedTranscription}"`);
+                    }
+                    // Clean up the final segment file
+                    try {
+                        fs.unlinkSync(finalSegmentFile);
+                    }
+                    catch (cleanupError) {
+                        console.warn(`🎤 [FINAL] Failed to clean up final segment file: ${cleanupError}`);
+                    }
+                }
+                catch (error) {
+                    console.error(`🎤 [FINAL] Error processing final audio segment: ${error}`);
+                    // Continue with existing accumulated transcription even if final processing fails
+                }
+            }
+            // 🎯 RETURN COMPLETE ACCUMULATED TRANSCRIPTION (now includes final segment)
             if (recording.accumulatedTranscription && recording.accumulatedTranscription.trim()) {
                 console.log(`🎤 [COMPLETE TRANSCRIPTION] Session ${sessionId}: "${recording.accumulatedTranscription}"`);
                 // Save the complete transcription before returning
@@ -459,6 +491,40 @@ class AudioService {
         }
         catch (error) {
             throw new Error(`Audio segment extraction failed: ${error.message}`);
+        }
+    }
+    /**
+     * Extract final audio segment when stopping recording to capture remaining audio
+     */
+    async extractFinalAudioSegment(inputFile, outputFile, durationMs) {
+        const MILLISECONDS_TO_SECONDS = 1000;
+        const durationSeconds = durationMs / MILLISECONDS_TO_SECONDS;
+        try {
+            console.log(`🎤 [FINAL] Extracting final ${durationSeconds} seconds from: ${inputFile}`);
+            // Get the total duration of the input file
+            const totalDuration = await this.getAudioDuration(inputFile);
+            if (totalDuration <= 0) {
+                throw new Error('Audio file has no duration');
+            }
+            // Calculate start time for last N seconds, but don't go negative
+            const startTime = Math.max(0, totalDuration - durationSeconds);
+            // If the file is shorter than the requested duration, extract the whole file
+            const actualDuration = Math.min(durationSeconds, totalDuration);
+            console.log(`🎤 [FINAL] Total duration: ${totalDuration}s, extracting from ${startTime}s for ${actualDuration}s`);
+            // Extract the final audio segment
+            await this.runFfmpegExtraction(inputFile, outputFile, startTime, actualDuration);
+            // Verify the extracted file exists and has content
+            if (!fs.existsSync(outputFile)) {
+                throw new Error('Final segment file was not created');
+            }
+            const stats = fs.statSync(outputFile);
+            if (stats.size === 0) {
+                throw new Error('Final segment file is empty');
+            }
+            console.log(`🎤 [FINAL] Final segment extracted successfully: ${stats.size} bytes`);
+        }
+        catch (error) {
+            throw new Error(`Final audio segment extraction failed: ${error.message}`);
         }
     }
     /**
