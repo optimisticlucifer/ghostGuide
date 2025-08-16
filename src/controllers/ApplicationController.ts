@@ -760,7 +760,7 @@ export class ApplicationController {
             <p style="color: #666; margin-bottom: 15px;">Provide additional context about your interview (optional):</p>
             <textarea id="contextInput" placeholder="E.g., Company details, specific technologies, role requirements, interview focus areas..."></textarea>
             <div class="modal-buttons">
-              <button class="modal-cancel" onclick="hideContextModal()">Skip</button>
+              <button class="modal-cancel" onclick="skipContext()">Skip</button>
               <button class="modal-save" onclick="startSessionWithContext()">Start Session</button>
             </div>
           </div>
@@ -796,6 +796,20 @@ export class ApplicationController {
             document.getElementById('contextInput').value = '';
           }
           
+          function skipContext() {
+            const profession = document.getElementById('profession').value;
+            const interviewType = document.getElementById('interview-type').value;
+            
+            ipcRenderer.send('create-session', {
+              profession,
+              interviewType,
+              context: null, // No context
+              createdAt: new Date().toISOString()
+            });
+            
+            hideContextModal();
+          }
+          
           function startSessionWithContext() {
             const profession = document.getElementById('profession').value;
             const interviewType = document.getElementById('interview-type').value;
@@ -822,7 +836,10 @@ export class ApplicationController {
           // Close modal with Escape key
           document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
-              hideContextModal();
+              const modal = document.getElementById('contextModal');
+              if (modal.style.display === 'flex') {
+                hideContextModal();
+              }
             }
           });
         </script>

@@ -68,7 +68,7 @@ class ChatService {
         }
     }
     /**
-     * Process OCR text and get AI analysis
+     * Process OCR text and get AI analysis - PERSISTENT CONTEXT
      */
     async processOCRText(sessionId, text, action) {
         try {
@@ -78,18 +78,38 @@ class ChatService {
             }
             // Get action-specific prompt
             const actionPrompt = this.promptLibraryService.getActionPrompt(action, session.profession, session.interviewType);
-            // Get system prompt
-            const systemPrompt = this.promptLibraryService.getSystemPrompt(session.profession, session.interviewType);
-            // Build conversation history
-            const messages = this.buildConversationHistory(sessionId, systemPrompt);
-            // Add OCR analysis request
+            // Create user message for OCR analysis
             const analysisRequest = `${actionPrompt}\n\nExtracted text:\n${text}`;
-            messages.push({
+            // ✅ CRITICAL: Save the OCR text as a user message to maintain context
+            const timestamp = new Date();
+            await this.sessionManager.addChatMessage(sessionId, {
+                id: `user-ocr-${Date.now()}`,
+                sessionId,
                 role: 'user',
-                content: analysisRequest
+                content: analysisRequest,
+                timestamp,
+                metadata: {
+                    action: action,
+                    ocrText: text
+                }
             });
-            // Get AI response
+            // Get system prompt and build conversation history (now includes the OCR message)
+            const systemPrompt = this.promptLibraryService.getSystemPrompt(session.profession, session.interviewType);
+            const messages = this.buildConversationHistory(sessionId, systemPrompt);
+            // Get AI response using the persistent conversation
             const response = await this.callOpenAI(messages);
+            // ✅ CRITICAL: Save the AI response to maintain context
+            await this.sessionManager.addChatMessage(sessionId, {
+                id: `assistant-ocr-${Date.now()}`,
+                sessionId,
+                role: 'assistant',
+                content: response,
+                timestamp: new Date(),
+                metadata: {
+                    action: action,
+                    ocrText: text
+                }
+            });
             return response;
         }
         catch (error) {
@@ -98,7 +118,7 @@ class ChatService {
         }
     }
     /**
-     * Process audio transcript and get AI coaching
+     * Process audio transcript and get AI coaching - PERSISTENT CONTEXT
      */
     async processTranscript(sessionId, transcript, source) {
         try {
@@ -106,10 +126,6 @@ class ChatService {
             if (!session) {
                 throw new Error('Session not found');
             }
-            // Get system prompt
-            const systemPrompt = this.promptLibraryService.getSystemPrompt(session.profession, session.interviewType);
-            // Build conversation history
-            const messages = this.buildConversationHistory(sessionId, systemPrompt);
             // Create coaching request based on source
             let coachingRequest;
             if (source === types_1.AudioSource.SYSTEM) {
@@ -121,12 +137,36 @@ class ChatService {
             else {
                 coachingRequest = `📝 **INTERVIEW TRANSCRIPT:**\n\n"${transcript}"\n\nPlease analyze this interview exchange and provide relevant guidance for this ${session.profession} ${session.interviewType} interview.`;
             }
-            messages.push({
+            // ✅ CRITICAL: Save the transcript as a user message to maintain context
+            const timestamp = new Date();
+            await this.sessionManager.addChatMessage(sessionId, {
+                id: `user-audio-${Date.now()}`,
+                sessionId,
                 role: 'user',
-                content: coachingRequest
+                content: coachingRequest,
+                timestamp,
+                metadata: {
+                    action: types_1.ActionType.GENERAL,
+                    source: source
+                }
             });
-            // Get AI response
+            // Get system prompt and build conversation history (now includes the audio message)
+            const systemPrompt = this.promptLibraryService.getSystemPrompt(session.profession, session.interviewType);
+            const messages = this.buildConversationHistory(sessionId, systemPrompt);
+            // Get AI response using the persistent conversation
             const response = await this.callOpenAI(messages);
+            // ✅ CRITICAL: Save the AI response to maintain context
+            await this.sessionManager.addChatMessage(sessionId, {
+                id: `assistant-audio-${Date.now()}`,
+                sessionId,
+                role: 'assistant',
+                content: response,
+                timestamp: new Date(),
+                metadata: {
+                    action: types_1.ActionType.GENERAL,
+                    source: source
+                }
+            });
             return response;
         }
         catch (error) {

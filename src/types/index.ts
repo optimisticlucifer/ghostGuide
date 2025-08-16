@@ -9,6 +9,54 @@ export interface SessionConfig {
   isActive: boolean;
 }
 
+export interface HistoricalSession extends Session {
+  createdAt: Date;
+  lastUpdated: Date;
+  status: 'active' | 'completed' | 'archived';
+  duration?: number; // Duration in minutes
+  messageCount: number;
+  tags?: string[];
+  summary?: string;
+}
+
+export interface SessionHistoryQuery {
+  profession?: string;
+  interviewType?: string;
+  dateRange?: {
+    start: Date;
+    end: Date;
+  };
+  status?: 'active' | 'completed' | 'archived';
+  tags?: string[];
+  searchText?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SessionExportOptions {
+  format: 'text' | 'markdown' | 'pdf' | 'json';
+  includeMetadata: boolean;
+  includeTimestamps: boolean;
+  includeRagContext: boolean;
+}
+
+export interface SessionAnalytics {
+  totalSessions: number;
+  totalDuration: number; // in minutes
+  averageDuration: number;
+  messageDistribution: {
+    user: number;
+    assistant: number;
+  };
+  professionBreakdown: Record<string, number>;
+  interviewTypeBreakdown: Record<string, number>;
+  weeklyTrend: Array<{
+    week: string;
+    count: number;
+    duration: number;
+  }>;
+}
+
 export interface Session {
   id: string;
   profession: string;

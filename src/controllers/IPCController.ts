@@ -9,7 +9,7 @@ import { CaptureService } from '../services/CaptureService';
 import { ConfigurationManager } from '../services/ConfigurationManager';
 import { SessionManager } from '../services/SessionManager';
 import { WindowManager } from '../services/WindowManager';
-import { AudioSource } from '../types';
+import { AudioSource, ActionType } from '../types';
 
 export interface IPCServices {
   globalRagService: GlobalRAGService;
@@ -194,13 +194,19 @@ export class IPCController {
         const ocrText = await this.services.ocrService.extractText(screenshot);
         console.log(`📷 [OCR] OCR extraction completed: "${ocrText.substring(0, 100)}..."`);
 
-        // Step 3: Generate AI analysis using OpenAI
+        // Step 3: Generate AI analysis using PERSISTENT ChatService
         let aiAnalysis = '';
-        if (this.services.openai && session) {
-          console.log(`🤖 [AI] Using OpenAI for screenshot analysis (${session.profession} ${session.interviewType})`);
-          aiAnalysis = await this.generateOpenAIScreenshotAnalysis(ocrText, session.profession, session.interviewType);
+        if (this.services.chatService.isConfigured() && session) {
+          console.log(`🤖 [AI] Using persistent ChatService for screenshot analysis (${session.profession} ${session.interviewType})`);
+          try {
+            aiAnalysis = await this.services.chatService.processOCRText(sessionId, ocrText, ActionType.SCREENSHOT);
+            console.log(`🤖 [AI] Generated persistent OCR analysis for session ${sessionId}`);
+          } catch (error) {
+            console.error(`🤖 [AI] ChatService OCR processing failed:`, error);
+            aiAnalysis = this.generateFallbackAnalysis(ocrText, session.profession, session.interviewType);
+          }
         } else {
-          console.log(`⚠️ [AI] No OpenAI client available, using fallback analysis`);
+          console.log(`⚠️ [AI] No ChatService configured, using fallback analysis`);
           aiAnalysis = this.generateFallbackAnalysis(ocrText, session?.profession || 'software-engineer', session?.interviewType || 'technical');
         }
 
@@ -242,38 +248,17 @@ export class IPCController {
         const ocrText = await this.services.ocrService.extractText(screenshot);
 
         let debugAnalysis = '';
-        if (this.services.openai && session) {
-          console.log(`🤖 [DEBUG] Using OpenAI for debug analysis (${session.profession} ${session.interviewType})`);
-          
-          const systemPrompt = `You are an expert code reviewer and debugging assistant specializing in ${session.profession} interviews.
-                        Given the OCR-extracted error context below (including failing examples and error messages), extract the failure details and provide only the corrected, fully working code.
-                        Analyze the following code and provide comprehensive debugging guidance:
-
-                        CODE: "${ocrText}"
-
-                        Provide a detailed response that includes:
-                        1. Code analysis and potential issues
-                        2. Bug identification and explanations
-                        3. Suggested fixes with code examples 
-                        4. Best practices and improvements
-                        5. Edge cases to consider
-                        6. give full working code according to the language the question is asked or according to the template given in ocr text
-
-                        Format your response with clear sections and use markdown for better readability. Be specific and actionable.`;
-
-          const completion = await this.services.openai.chat.completions.create({
-            model: 'gpt-4',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: `Please debug this code: ${ocrText}` }
-            ],
-            max_tokens: 1500,
-            temperature: 0.3
-          });
-
-          debugAnalysis = completion.choices[0].message.content || 'Unable to generate debug analysis';
+        if (this.services.chatService.isConfigured() && session) {
+          console.log(`🤖 [DEBUG] Using persistent ChatService for debug analysis (${session.profession} ${session.interviewType})`);
+          try {
+            debugAnalysis = await this.services.chatService.processOCRText(sessionId, ocrText, ActionType.DEBUG);
+            console.log(`🤖 [DEBUG] Generated persistent debug analysis for session ${sessionId}`);
+          } catch (error) {
+            console.error(`🤖 [DEBUG] ChatService debug processing failed:`, error);
+            debugAnalysis = this.generateFallbackDebugAnalysis(ocrText, session.profession);
+          }
         } else {
-          console.log(`⚠️ [DEBUG] No OpenAI client available, using fallback analysis`);
+          console.log(`⚠️ [DEBUG] No ChatService configured, using fallback analysis`);
           debugAnalysis = this.generateFallbackDebugAnalysis(ocrText, session?.profession || 'software-engineer');
         }
 
@@ -346,24 +331,11 @@ export class IPCController {
                 });
               }
 
-              // Process with AI if available
-              if (this.services.openai && session) {
+              // Process with PERSISTENT ChatService if available
+              if (this.services.chatService.isConfigured() && session) {
                 try {
-                  const systemPrompt = `You are an expert interview coach specializing in ${session.profession} ${session.interviewType} interviews. The user has just provided their response to a question.`;
-                  
-                  const coachingRequest = `🗣️ **MY INTERVIEW RESPONSE REVIEW:**\n\n"${transcription}"\n\nThis is what I just said in response. Please analyze and provide:\n\n1. **Assessment** – Did I correctly understand and address the question?\n\n2. **Strengths** – What I did well in terms of content, clarity, and delivery.\n\n3. **Improvements** – Specific areas where I can be clearer, more structured, or more concise.\n\n4. **Polished Version** – Rewrite a strong, spoken-style version of my answer that I can say next time.\n\n5. **Follow-up Suggestions** – Any additional points or questions I could raise to show depth.\n\n\nEvaluate this in the context of a **${session.profession}** role during a **${session.interviewType}** interview.`;
-
-                  const completion = await this.services.openai.chat.completions.create({
-                    model: 'gpt-3.5-turbo',
-                    messages: [
-                      { role: 'system', content: systemPrompt },
-                      { role: 'user', content: coachingRequest }
-                    ],
-                    max_tokens: 800,
-                    temperature: 0.7
-                  });
-                  
-                  const aiResponse = completion.choices[0].message.content || 'Unable to generate analysis';
+                  console.log(`🎤 [PERSISTENT] Using persistent ChatService for microphone transcription analysis`);
+                  const aiResponse = await this.services.chatService.processTranscript(sessionId, transcription, AudioSource.INTERVIEWEE);
                   
                   if (sessionWindow && !sessionWindow.isDestroyed()) {
                     sessionWindow.webContents.send('chat-response', {
@@ -374,7 +346,7 @@ export class IPCController {
                     });
                   }
                 } catch (error) {
-                  console.error(`Failed to process mic audio transcription: ${error}`);
+                  console.error(`Failed to process mic audio transcription with persistent ChatService: ${error}`);
                 }
               }
             }
@@ -441,24 +413,11 @@ export class IPCController {
                 });
               }
 
-              // Process with AI for system audio (interviewer questions)
-              if (this.services.openai && session) {
+              // Process with PERSISTENT ChatService for system audio (interviewer questions)
+              if (this.services.chatService.isConfigured() && session) {
                 try {
-                  const systemPrompt = `You are an expert interview coach specializing in ${session.profession} ${session.interviewType} interviews. The interviewer just asked a question.`;
-                  
-                  const coachingRequest = `🧠 **INTERVIEW QUESTION DETECTED:**\n\n"${transcription}"\n\nPlease analyze this question and provide:\n\n1. **Question Type** – Is this a theoretical, behavioral, or coding question?\n\n2. **What the interviewer is expecting** – What should a strong answer include?\n\n3. **Answer Structure** – Step-by-step breakdown of how to respond effectively.\n\n4. ** Answer** – A clear and detailed answer I can say directly in the interview.if there is code asked the give the code too its important.\n\n5. **Follow-up Advice** – Any clarifying questions I should ask or pitfalls to avoid.\n\n\nTailor everything specifically for a **${session.profession}** role in a **${session.interviewType}** interview.`;
-
-                  const completion = await this.services.openai.chat.completions.create({
-                    model: 'gpt-3.5-turbo',
-                    messages: [
-                      { role: 'system', content: systemPrompt },
-                      { role: 'user', content: coachingRequest }
-                    ],
-                    max_tokens: 800,
-                    temperature: 0.7
-                  });
-                  
-                  const aiResponse = completion.choices[0].message.content || 'Unable to generate analysis';
+                  console.log(`🔊 [PERSISTENT] Using persistent ChatService for system audio transcription analysis`);
+                  const aiResponse = await this.services.chatService.processTranscript(sessionId, transcription, AudioSource.SYSTEM);
                   
                   if (sessionWindow && !sessionWindow.isDestroyed()) {
                     sessionWindow.webContents.send('chat-response', {
@@ -469,7 +428,7 @@ export class IPCController {
                     });
                   }
                 } catch (error) {
-                  console.error(`Failed to process system audio transcription: ${error}`);
+                  console.error(`Failed to process system audio transcription with persistent ChatService: ${error}`);
                 }
               }
             }
@@ -830,22 +789,77 @@ Return only the structured answers for each question in the above format. Do not
         if (this.services.globalRagService.isReady()) {
           console.log(`📚 [CONTEXT] Searching global RAG for relevant context...`);
           
-          // Build search query from user context and profession/interview type
-          const searchQueries = [
-            `${profession} ${interviewType}`,
-            userContext || '',
-            `resume experience ${profession}`,
-            `skills ${profession}`,
-            'background experience'
-          ].filter(q => q.trim().length > 0);
-
-          const searchResults = await this.services.globalRagService.searchRelevantContext(searchQueries.join(' '), 5);
+          // Build comprehensive search queries for better context retrieval
+          const searchQueries = [];
           
-          if (searchResults && searchResults.length > 0) {
-            globalContext = searchResults.map(result => result.text).join('\n\n');
-            console.log(`📚 [CONTEXT] Found ${searchResults.length} relevant documents from global RAG`);
+          // Add profession and interview type specific queries
+          searchQueries.push(`${profession} ${interviewType} experience`);
+          searchQueries.push(`${profession} background skills`);
+          searchQueries.push(`${profession.replace('-', ' ')} resume`);
+          
+          // Add user context if provided
+          if (userContext && userContext.trim().length > 0) {
+            searchQueries.push(userContext);
+            // Extract key terms from user context
+            const contextWords = userContext.toLowerCase().split(/\s+/).filter(word => word.length > 3);
+            if (contextWords.length > 0) {
+              searchQueries.push(contextWords.slice(0, 5).join(' '));
+            }
+          }
+          
+          // Add general resume/experience queries
+          searchQueries.push('work experience projects');
+          searchQueries.push('education background skills');
+          searchQueries.push('technical expertise achievements');
+          searchQueries.push('experience and responsibilities');
+          searchQueries.push('relevant coursework projects');
+
+          
+          console.log(`📚 [CONTEXT] Searching with queries: ${searchQueries.join(', ')}`);
+          
+          // Try multiple search approaches for better results
+          let allSearchResults = [];
+          
+          for (const query of searchQueries) {
+            try {
+              const results = await this.services.globalRagService.searchRelevantContext(query, 3);
+              if (results && results.length > 0) {
+                allSearchResults.push(...results);
+              }
+            } catch (error) {
+              console.error(`📚 [CONTEXT] Search failed for query "${query}":`, error);
+            }
+          }
+          
+          // Remove duplicates and get best results
+          const uniqueResults = allSearchResults.filter((result, index, array) => 
+            array.findIndex(r => r.id === result.id) === index
+          );
+          
+          // Sort by score and take top 5
+          const topResults = uniqueResults
+            .sort((a, b) => (b.score || 0) - (a.score || 0))
+            .slice(0, 5);
+          
+          if (topResults.length > 0) {
+            // Process and clean up the context
+            globalContext = topResults
+              .map(result => {
+                let text = result.text.trim();
+                // Clean up the text - remove excessive whitespace and format nicely
+                text = text.replace(/\s+/g, ' ').trim();
+                // Ensure it ends with proper punctuation
+                if (text.length > 0 && !text.match(/[.!?]$/)) {
+                  text += '.';
+                }
+                return text;
+              })
+              .filter(text => text.length > 10) // Filter out very short results
+              .join('\n\n');
+              
+            console.log(`📚 [CONTEXT] Found ${topResults.length} relevant documents from global RAG (${globalContext.length} characters)`);
           } else {
-            console.log(`📚 [CONTEXT] No relevant context found in global RAG`);
+            console.log(`📚 [CONTEXT] No relevant context found in global RAG after searching ${searchQueries.length} queries`);
           }
         } else {
           console.log(`📚 [CONTEXT] Global RAG service not ready, skipping global context search`);
@@ -868,10 +882,10 @@ Return only the structured answers for each question in the above format. Do not
       }
       
       contextMessage += `**Instructions:**\n`;
-      contextMessage += `You are a very good assistant helping me prepare for this ${profession} ${interviewType} interview. `;
-      contextMessage += `Please provide expert guidance, practice questions, and coaching throughout our session. `;
+      contextMessage += `You are a very good assistant helping me in answering  questions which will come in interview the interview is for ${profession} ${interviewType} interview. `;
+      contextMessage += `Please provide expert guidance,  questions answer throughout our session. `;
       contextMessage += `Use the context above to personalize your responses and give relevant advice based on my background and the interview requirements.\n\n`;
-      contextMessage += `**Ready to start!** 🚀`;
+      contextMessage += `**Ready to star keep the context with you whenever i send you question of interview give me the best answer !** `;
 
       // Send the context message to ChatService
       const aiResponse = await this.services.chatService.sendMessage(sessionId, contextMessage, true); // true indicates this is an initialization message
