@@ -3,13 +3,20 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ChatService = void 0;
 const types_1 = require("../types");
 class ChatService {
-    constructor(configurationManager, promptLibraryService, sessionManager, ragService) {
+    constructor(configurationManager, promptLibraryService, sessionManager, ragService, localRAGService, globalRAGService) {
         this.maxTokens = 4000;
         this.maxHistoryMessages = 20;
+        // RAG enabled states per session
+        this.globalRAGEnabledSessions = new Set();
+        this.localRAGEnabledSessions = new Set();
         this.configurationManager = configurationManager;
         this.promptLibraryService = promptLibraryService;
         this.sessionManager = sessionManager;
         this.ragService = ragService;
+        this.localRAGService = localRAGService;
+        this.globalRAGService = globalRAGService;
+        // Initialize all sessions with both RAG types enabled by default
+        // (Individual session settings will be managed separately)
     }
     /**
      * Send a regular chat message and get AI response
@@ -24,12 +31,33 @@ class ChatService {
             const systemPrompt = this.promptLibraryService.getSystemPrompt(session.profession, session.interviewType);
             // Build conversation history
             const messages = this.buildConversationHistory(sessionId, systemPrompt);
-            // Search for relevant context from RAG
-            const ragContext = await this.ragService.searchRelevantContent(message, sessionId);
+            // Search for relevant context from all enabled RAG sources
+            const ragContextSources = [];
+            try {
+                // Get local RAG context if enabled
+                if (this.isLocalRAGEnabled(sessionId) && this.localRAGService) {
+                    const localResults = await this.localRAGService.getContextStrings(sessionId, message, 3);
+                    ragContextSources.push(...localResults);
+                }
+                // Get global RAG context if enabled  
+                if (this.isGlobalRAGEnabled(sessionId) && this.globalRAGService) {
+                    const globalResults = await this.globalRAGService.getContextStrings(message, 3);
+                    ragContextSources.push(...globalResults);
+                }
+                // Fallback to original RAG service if others are not available
+                if (ragContextSources.length === 0) {
+                    const fallbackContext = await this.ragService.searchRelevantContent(message, sessionId);
+                    ragContextSources.push(...fallbackContext);
+                }
+            }
+            catch (error) {
+                console.warn('⚠️ [CHAT] RAG context retrieval failed:', error);
+                // Continue without RAG context
+            }
             // Enhance message with RAG context if available
             let enhancedMessage = message;
-            if (ragContext.length > 0) {
-                enhancedMessage = `${message}\n\nRelevant context from your materials:\n${ragContext.join('\n\n')}`;
+            if (ragContextSources.length > 0) {
+                enhancedMessage = `${message}\n\nRelevant context from your materials:\n${ragContextSources.join('\n\n')}`;
             }
             // Add current user message
             messages.push({
@@ -316,6 +344,68 @@ class ChatService {
             model: 'gpt-3.5-turbo',
             maxTokens: this.maxTokens
         };
+    }
+    /**
+     * RAG Management Methods
+     */
+    /**
+     * Enable or disable global RAG for a session
+     */
+    setGlobalRAGEnabled(sessionId, enabled) {
+        if (enabled) {
+            this.globalRAGEnabledSessions.add(sessionId);
+        }
+        else {
+            this.globalRAGEnabledSessions.delete(sessionId);
+        }
+        console.log(`🌐 [CHAT] Global RAG ${enabled ? 'enabled' : 'disabled'} for session: ${sessionId}`);
+    }
+    /**
+     * Enable or disable local RAG for a session
+     */
+    setLocalRAGEnabled(sessionId, enabled) {
+        if (enabled) {
+            this.localRAGEnabledSessions.add(sessionId);
+        }
+        else {
+            this.localRAGEnabledSessions.delete(sessionId);
+        }
+        // Also update the local RAG service if available
+        if (this.localRAGService) {
+            this.localRAGService.setLocalRAGEnabled(sessionId, enabled);
+        }
+        console.log(`📁 [CHAT] Local RAG ${enabled ? 'enabled' : 'disabled'} for session: ${sessionId}`);
+    }
+    /**
+     * Check if global RAG is enabled for a session
+     */
+    isGlobalRAGEnabled(sessionId) {
+        // Default to enabled if not explicitly disabled
+        return this.globalRAGEnabledSessions.has(sessionId) ||
+            (!this.globalRAGEnabledSessions.has(sessionId) && this.globalRAGEnabledSessions.size === 0);
+    }
+    /**
+     * Check if local RAG is enabled for a session
+     */
+    isLocalRAGEnabled(sessionId) {
+        // Default to enabled if not explicitly disabled
+        return this.localRAGEnabledSessions.has(sessionId) ||
+            (!this.localRAGEnabledSessions.has(sessionId) && this.localRAGEnabledSessions.size === 0);
+    }
+    /**
+     * Initialize RAG settings for a new session (both enabled by default)
+     */
+    initializeSessionRAG(sessionId) {
+        this.setGlobalRAGEnabled(sessionId, true);
+        this.setLocalRAGEnabled(sessionId, true);
+    }
+    /**
+     * Clean up session RAG settings when session closes
+     */
+    cleanupSessionRAG(sessionId) {
+        this.globalRAGEnabledSessions.delete(sessionId);
+        this.localRAGEnabledSessions.delete(sessionId);
+        console.log(`🧹 [CHAT] Cleaned up RAG settings for session: ${sessionId}`);
     }
 }
 exports.ChatService = ChatService;

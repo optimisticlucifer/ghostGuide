@@ -46,6 +46,40 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
         
+        /* RAG Control Button Styles */
+        .toolbar button.rag-control {
+            font-size: 10px;
+            padding: 5px 8px;
+            min-width: 60px;
+        }
+        
+        .toolbar button.rag-enabled {
+            background: rgba(40, 167, 69, 0.9);
+            color: white;
+        }
+        
+        .toolbar button.rag-enabled:hover {
+            background: rgba(40, 167, 69, 1);
+        }
+        
+        .toolbar button.rag-disabled {
+            background: rgba(220, 53, 69, 0.9);
+            color: white;
+        }
+        
+        .toolbar button.rag-disabled:hover {
+            background: rgba(220, 53, 69, 1);
+        }
+        
+        .toolbar button.refresh-btn {
+            background: rgba(255, 193, 7, 0.9);
+            color: black;
+        }
+        
+        .toolbar button.refresh-btn:hover {
+            background: rgba(255, 193, 7, 1);
+        }
+        
         .chat-container {
             flex: 1;
             padding: 10px;
@@ -245,6 +279,9 @@
         <button id="recordInterviewer" title="Record Interviewer (System Audio)">🎤</button>
         <button id="recordInterviewee" title="Record Interviewee (Microphone)">🎙️</button>
         <button id="addRAG" title="Add Material for RAG">📚</button>
+        <button id="refreshLocalRAG" class="rag-control refresh-btn" title="Refresh Local RAG Database">🔄 Local</button>
+        <button id="toggleGlobalRAG" class="rag-control rag-enabled" title="Toggle Global RAG">🌍 Global</button>
+        <button id="toggleLocalRAG" class="rag-control rag-enabled" title="Toggle Local RAG">📁 Local</button>
         <button id="close" title="Close Session">✕</button>
     </div>
     

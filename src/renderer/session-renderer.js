@@ -6,6 +6,10 @@ class SessionWindowRenderer {
     this.isRecording = false;
     this.currentRecordingSource = null;
     
+    // RAG State Management
+    this.globalRAGEnabled = true;
+    this.localRAGEnabled = true;
+    
     this.initializeElements();
     this.setupEventListeners();
     this.setupIpcListeners();
@@ -36,6 +40,11 @@ class SessionWindowRenderer {
     this.addRAGBtn = document.getElementById('addRAG');
     this.closeBtn = document.getElementById('close');
     
+    // New RAG Control buttons
+    this.refreshLocalRAGBtn = document.getElementById('refreshLocalRAG');
+    this.toggleGlobalRAGBtn = document.getElementById('toggleGlobalRAG');
+    this.toggleLocalRAGBtn = document.getElementById('toggleLocalRAG');
+    
     // Chat elements
     this.chatMessages = document.getElementById('chatMessages');
     this.messageInput = document.getElementById('messageInput');
@@ -56,8 +65,19 @@ class SessionWindowRenderer {
     this.debugBtn.addEventListener('click', () => this.debugCode());
     this.recordInterviewerBtn.addEventListener('click', () => this.toggleRecording('system')); // Use system audio for interviewer
     this.recordIntervieweeBtn.addEventListener('click', () => this.toggleRecording('interviewee'));
-    this.addRAGBtn.addEventListener('click', () => this.addRAGMaterial());
+    this.addRAGBtn.addEventListener('click', () => this.openFolderSelection());
     this.closeBtn.addEventListener('click', () => this.closeSession());
+    
+    // New RAG Control button events
+    if (this.refreshLocalRAGBtn) {
+      this.refreshLocalRAGBtn.addEventListener('click', () => this.refreshLocalRAG());
+    }
+    if (this.toggleGlobalRAGBtn) {
+      this.toggleGlobalRAGBtn.addEventListener('click', () => this.toggleGlobalRAG());
+    }
+    if (this.toggleLocalRAGBtn) {
+      this.toggleLocalRAGBtn.addEventListener('click', () => this.toggleLocalRAG());
+    }
     
     // Chat input events
     this.sendMessageBtn.addEventListener('click', () => this.sendMessage());
@@ -169,10 +189,49 @@ class SessionWindowRenderer {
         action: 'audio'
       });
     });
+    
+    // RAG-related IPC listeners
+    ipcRenderer.on('folder-selected', (event, result) => {
+      if (result.success) {
+        this.addMessage('assistant', `📁 Folder selected: ${result.path}\n📝 Processing ${result.fileCount} documents...`, { action: 'rag' });
+      } else {
+        this.addMessage('assistant', `❌ Folder selection cancelled or failed`, { action: 'rag', error: true });
+      }
+    });
+    
+    ipcRenderer.on('rag-processed', (event, result) => {
+      this.hideLoading();
+      if (result.success) {
+        this.addMessage('assistant', `✅ RAG processing complete!\n📊 Processed ${result.documentCount} documents\n🔍 ${result.embeddingCount} embeddings created`, { action: 'rag' });
+      } else {
+        this.addMessage('assistant', `❌ RAG processing failed: ${result.error}`, { action: 'rag', error: true });
+      }
+    });
+    
+    ipcRenderer.on('local-rag-refreshed', (event, result) => {
+      this.hideLoading();
+      if (result.success) {
+        this.addMessage('assistant', `🔄 Local RAG database refreshed!\n📊 ${result.documentCount} documents reprocessed`, { action: 'rag' });
+      } else {
+        this.addMessage('assistant', `❌ Failed to refresh local RAG: ${result.error}`, { action: 'rag', error: true });
+      }
+    });
+    
+    ipcRenderer.on('global-rag-toggled', (event, result) => {
+      this.addMessage('assistant', `🌐 Global RAG ${result.enabled ? 'enabled' : 'disabled'}`, { action: 'rag' });
+    });
+    
+    ipcRenderer.on('local-rag-toggled', (event, result) => {
+      this.addMessage('assistant', `📁 Local RAG ${result.enabled ? 'enabled' : 'disabled'}`, { action: 'rag' });
+    });
   }
 
   initializeSession() {
     this.sessionInfo.textContent = `Session: ${this.sessionId.substring(0, 8)}...`;
+    
+    // Initialize RAG button states
+    this.updateRAGButtonState('global');
+    this.updateRAGButtonState('local');
   }
 
   captureScreenshot() {
@@ -206,6 +265,57 @@ class SessionWindowRenderer {
   addRAGMaterial() {
     this.addMessage('user', 'Adding RAG material...', { action: 'rag' });
     ipcRenderer.send('add-rag-material', { sessionId: this.sessionId });
+  }
+
+  // New RAG Control Methods
+  openFolderSelection() {
+    this.addMessage('user', 'Opening folder selection for local RAG...', { action: 'rag' });
+    ipcRenderer.send('select-folder-for-rag', { sessionId: this.sessionId });
+  }
+
+  refreshLocalRAG() {
+    this.addMessage('user', 'Refreshing local RAG database...', { action: 'rag' });
+    ipcRenderer.send('refresh-local-rag', { sessionId: this.sessionId });
+  }
+
+  toggleGlobalRAG() {
+    this.globalRAGEnabled = !this.globalRAGEnabled;
+    this.updateRAGButtonState('global');
+    this.addMessage('user', `Global RAG ${this.globalRAGEnabled ? 'enabled' : 'disabled'}`, { action: 'rag' });
+    ipcRenderer.send('toggle-global-rag', { 
+      sessionId: this.sessionId, 
+      enabled: this.globalRAGEnabled 
+    });
+  }
+
+  toggleLocalRAG() {
+    this.localRAGEnabled = !this.localRAGEnabled;
+    this.updateRAGButtonState('local');
+    this.addMessage('user', `Local RAG ${this.localRAGEnabled ? 'enabled' : 'disabled'}`, { action: 'rag' });
+    ipcRenderer.send('toggle-local-rag', { 
+      sessionId: this.sessionId, 
+      enabled: this.localRAGEnabled 
+    });
+  }
+
+  updateRAGButtonState(type) {
+    if (type === 'global' && this.toggleGlobalRAGBtn) {
+      if (this.globalRAGEnabled) {
+        this.toggleGlobalRAGBtn.classList.add('enabled');
+        this.toggleGlobalRAGBtn.classList.remove('disabled');
+      } else {
+        this.toggleGlobalRAGBtn.classList.add('disabled');
+        this.toggleGlobalRAGBtn.classList.remove('enabled');
+      }
+    } else if (type === 'local' && this.toggleLocalRAGBtn) {
+      if (this.localRAGEnabled) {
+        this.toggleLocalRAGBtn.classList.add('enabled');
+        this.toggleLocalRAGBtn.classList.remove('disabled');
+      } else {
+        this.toggleLocalRAGBtn.classList.add('disabled');
+        this.toggleLocalRAGBtn.classList.remove('enabled');
+      }
+    }
   }
 
   closeSession() {
