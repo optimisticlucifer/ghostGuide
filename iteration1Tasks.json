@@ -255,26 +255,26 @@
     "task_9": {
       "title": "Centralized Prompt Management",
       "description": "Create unified prompt library system",
-      "status": "not_started",
+      "status": "completed",
       "priority": "medium",
       "estimated_hours": 3,
       "subtasks": {
         "9.1": {
           "title": "Enhance PromptLibraryService",
           "description": "Centralize all prompts in single service",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/PromptLibraryService.ts"]
         },
         "9.2": {
           "title": "Create prompt templates",
           "description": "Define templates for different actions and contexts",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/PromptLibraryService.ts"]
         },
         "9.3": {
           "title": "Update all services to use centralized prompts",
           "description": "Remove hardcoded prompts from services",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/ChatService.ts", "src/services/OCRService.ts"]
         }
       }
