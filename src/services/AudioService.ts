@@ -35,6 +35,7 @@ interface AudioRecording {
   startTime: Date;
   segments: AudioSegment[];
   recentTranscriptions?: Array<{transcription: string; timestamp: Date; segmentId: string}>;
+  accumulatedTranscription: string; // Store accumulated transcription
 }
 
 interface AudioSegment {
@@ -192,7 +193,8 @@ export class AudioService {
         outputFile,
         isActive: false,
         startTime: new Date(),
-        segments: []
+        segments: [],
+        accumulatedTranscription: '' // Initialize empty accumulated transcription
       };
 
       // Configure FFmpeg command based on source
@@ -286,7 +288,7 @@ export class AudioService {
   }
 
   /**
-   * Stop recording for a session
+   * Stop recording for a session and return accumulated transcription
    */
   async stopRecording(sessionId: string): Promise<string | null> {
     const recording = this.recordings.get(sessionId);
@@ -307,12 +309,22 @@ export class AudioService {
       recording.isActive = false;
       console.log(`Audio recording stopped for session: ${sessionId}`);
       
-      if (recording.outputFile && fs.existsSync(recording.outputFile)) {
-        console.log(`🎤 [AUDIO] Processing recorded audio for transcription: ${recording.outputFile}`);
-        const transcription = await this.processRecordedAudio(sessionId, recording.outputFile);
-        return transcription;
+      // 🎯 RETURN ACCUMULATED TRANSCRIPTION instead of processing full audio
+      if (recording.accumulatedTranscription && recording.accumulatedTranscription.trim()) {
+        console.log(`🎤 [COMPLETE TRANSCRIPTION] Session ${sessionId}: "${recording.accumulatedTranscription}"`);
+        
+        // Save the complete transcription before returning
+        const completeTranscription = recording.accumulatedTranscription.trim();
+        
+        // Clean up audio file after successful transcription
+        if (recording.outputFile && fs.existsSync(recording.outputFile)) {
+          console.log(`🎤 [AUDIO] DEBUG: Preserving audio file for inspection: ${recording.outputFile}`);
+          // Could optionally clean up here: fs.unlinkSync(recording.outputFile);
+        }
+        
+        return completeTranscription;
       } else {
-        console.warn(`🎤 [AUDIO] No audio file found for transcription: ${recording.outputFile}`);
+        console.warn(`🎤 [AUDIO] No accumulated transcription found for session ${sessionId}`);
         return null;
       }
       
@@ -560,7 +572,7 @@ export class AudioService {
   }
 
   /**
-   * Process audio segment with Whisper transcription
+   * Process audio segment with Whisper transcription - ACCUMULATE, DON'T SEND
    */
   private async processAudioSegment(segment: AudioSegment, sessionId: string): Promise<void> {
     try {
@@ -584,13 +596,20 @@ export class AudioService {
       if (transcription && transcription.trim().length > 0) {
         segment.transcription = transcription;
         
-        // 1. IMMEDIATELY print full transcription to console
-        console.log(`🎤 [SEGMENT TRANSCRIPTION COMPLETED] Session ${sessionId}, Segment ${segment.id}: "${transcription}"`);
+        // 🔄 ACCUMULATE TRANSCRIPTION instead of sending immediately
+        const recording = this.recordings.get(sessionId);
+        if (recording) {
+          // Add a space if there's existing transcription
+          if (recording.accumulatedTranscription.length > 0) {
+            recording.accumulatedTranscription += ' ';
+          }
+          recording.accumulatedTranscription += transcription;
+          
+          console.log(`🎤 [ACCUMULATING] Session ${sessionId}: Added "${transcription}"`);
+          console.log(`🎤 [ACCUMULATED SO FAR] Session ${sessionId}: "${recording.accumulatedTranscription}"`);
+        }
         
-        // 2. Emit transcription event to main process for UI update and LLM processing
-        this.emitTranscriptionEvent(sessionId, transcription, segment);
-        
-        console.log(`✅ Transcription completed for segment ${segment.id}: ${transcription.substring(0, 50)}...`);
+        console.log(`✅ Transcription accumulated for segment ${segment.id}: ${transcription.substring(0, 50)}...`);
       } else {
         console.log(`No transcription result for segment ${segment.id}`);
       }
@@ -763,7 +782,7 @@ export class AudioService {
   }
 
   /**
-   * Get transcript for a session
+   * Get transcript for a session (legacy method)
    */
   getTranscript(sessionId: string): string {
     const recording = this.recordings.get(sessionId);
@@ -773,6 +792,16 @@ export class AudioService {
       .filter(segment => segment.transcription)
       .map(segment => segment.transcription)
       .join(' ');
+  }
+
+  /**
+   * Get accumulated transcription for a session (current recording)
+   */
+  getAccumulatedTranscription(sessionId: string): string {
+    const recording = this.recordings.get(sessionId);
+    if (!recording) return '';
+    
+    return recording.accumulatedTranscription || '';
   }
 
   /**

@@ -9,7 +9,7 @@
     "task_1": {
       "title": "Global RAG System in Settings",
       "description": "Implement global RAG support with LanceDB for persistent document embedding",
-      "status": "in_progress",
+      "status": "completed",
       "priority": "high",
       "estimated_hours": 8,
       "subtasks": {
@@ -28,7 +28,7 @@
         "1.3": {
           "title": "Add folder selection UI in settings",
           "description": "Add two buttons 'Support Global RAG' and 'Refresh Global RAG' in settings window",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/renderer/settings.html", "src/renderer/settings-renderer.js"]
         },
         "1.4": {
@@ -40,7 +40,7 @@
         "1.5": {
           "title": "Integrate with app data storage",
           "description": "Save embeddings to app data directory with proper persistence",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/GlobalRAGService.ts"]
         }
       }
@@ -48,26 +48,26 @@
     "task_2": {
       "title": "Context Input for Session Start",
       "description": "Add context input popup when starting a session",
-      "status": "not_started",
+      "status": "completed",
       "priority": "high",
       "estimated_hours": 4,
       "subtasks": {
         "2.1": {
           "title": "Create context input modal",
           "description": "Add popup with textarea and save/back buttons",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/renderer/main.html", "src/renderer/main-renderer.js"]
         },
         "2.2": {
           "title": "Integrate context with session initialization",
           "description": "Pass context to ChatService when starting session",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/SessionManager.ts", "src/services/ChatService.ts"]
         },
         "2.3": {
           "title": "Add global RAG context search",
           "description": "Search global database for relevant context based on user input",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/ChatService.ts", "src/services/GlobalRAGService.ts"]
         }
       }
@@ -75,26 +75,26 @@
     "task_3": {
       "title": "Persistent Chat Context",
       "description": "Maintain single OpenAI chat session throughout the interview session",
-      "status": "not_started",
+      "status": "completed",
       "priority": "high",
       "estimated_hours": 3,
       "subtasks": {
         "3.1": {
           "title": "Refactor ChatService for session persistence",
           "description": "Maintain conversation history and context across all interactions",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/ChatService.ts"]
         },
         "3.2": {
           "title": "Update OCR integration",
           "description": "Use same chat session for OCR text processing",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/ChatService.ts"]
         },
         "3.3": {
           "title": "Update audio transcription integration",
           "description": "Use same chat session for audio transcript processing",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/ChatService.ts", "src/services/AudioService.ts"]
         }
       }
@@ -102,14 +102,14 @@
     "task_4": {
       "title": "Fix HTML Rendering in Chat Bubbles",
       "description": "Display HTML as plain text instead of rendering it",
-      "status": "not_started",
+      "status": "completed",
       "priority": "medium",
       "estimated_hours": 1,
       "subtasks": {
         "4.1": {
           "title": "Update chat message rendering",
           "description": "Escape HTML entities in chat messages to display as text",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/renderer/session-renderer.js"]
         }
       }
@@ -117,32 +117,32 @@
     "task_5": {
       "title": "Fix Audio Recording and Transcription Flow",
       "description": "Accumulate transcriptions until user stops recording",
-      "status": "not_started",
+      "status": "completed",
       "priority": "high",
       "estimated_hours": 4,
       "subtasks": {
         "5.1": {
           "title": "Refactor AudioService recording logic",
           "description": "Store transcriptions without sending to LLM immediately",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/AudioService.ts"]
         },
         "5.2": {
           "title": "Implement transcription accumulation",
           "description": "Append new transcriptions to existing ones during recording",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/AudioService.ts"]
         },
         "5.3": {
           "title": "Update UI to show recording state",
           "description": "Visual feedback for recording status and accumulated transcription",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/renderer/session-renderer.js"]
         },
         "5.4": {
           "title": "Send complete transcription on stop",
           "description": "Send full accumulated transcription to LLM when recording stops",
-          "status": "not_started",
+          "status": "completed",
           "files_to_modify": ["src/services/AudioService.ts", "src/services/ChatService.ts"]
         }
       }

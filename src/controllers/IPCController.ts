@@ -454,6 +454,153 @@ export class IPCController {
         console.log(`⚠️ [IPC] Session not found for system recording toggle: ${sessionId}`);
       }
     });
+
+    // Individual recording source handlers (Task 5.1 - 5.4)
+    ipcMain.on('start-recording', async (event, data) => {
+      const { sessionId, source } = data;
+      const session = this.sessions.get(sessionId);
+      
+      console.log(`🎤 [IPC] Start recording requested for session: ${sessionId}, source: ${source}`);
+      
+      if (!session) {
+        console.log(`⚠️ [IPC] Session not found for recording start: ${sessionId}`);
+        event.reply('recording-error', {
+          sessionId,
+          error: 'Session not found'
+        });
+        return;
+      }
+      
+      try {
+        if (!this.services.audioService.isReady()) {
+          console.log(`🎤 [IPC] Initializing audio service...`);
+          await this.services.audioService.initialize();
+          console.log(`🎤 [IPC] Audio service initialized`);
+        }
+        
+        // Map source string to AudioSource enum
+        let audioSource: AudioSource;
+        switch (source) {
+          case 'interviewer':
+            audioSource = AudioSource.INTERVIEWER;
+            break;
+          case 'interviewee':
+            audioSource = AudioSource.INTERVIEWEE;
+            break;
+          case 'both':
+            audioSource = AudioSource.BOTH;
+            break;
+          case 'system':
+            audioSource = AudioSource.SYSTEM;
+            break;
+          default:
+            throw new Error(`Unknown audio source: ${source}`);
+        }
+        
+        console.log(`🎤 [IPC] Starting recording with AudioSource.${audioSource}`);
+        await this.services.audioService.startRecording(audioSource, sessionId);
+        
+        // Update session state
+        session.isRecording = true;
+        session.recordingSource = audioSource;
+        
+        event.reply('recording-status', {
+          sessionId,
+          isRecording: true,
+          source: source
+        });
+        
+        console.log(`🎤 [IPC] Recording started successfully for session: ${sessionId}`);
+      } catch (error) {
+        console.log(`❌ [IPC] Start recording failed for session ${sessionId}: ${(error as Error).message}`);
+        
+        event.reply('recording-error', {
+          sessionId,
+          error: (error as Error).message
+        });
+      }
+    });
+    
+    ipcMain.on('stop-recording', async (event, data) => {
+      const { sessionId } = data;
+      const session = this.sessions.get(sessionId);
+      
+      console.log(`🎤 [IPC] Stop recording requested for session: ${sessionId}`);
+      
+      if (!session) {
+        console.log(`⚠️ [IPC] Session not found for recording stop: ${sessionId}`);
+        event.reply('recording-error', {
+          sessionId,
+          error: 'Session not found'
+        });
+        return;
+      }
+      
+      try {
+        // 🎯 Get complete accumulated transcription when stopping recording
+        console.log(`🎤 [IPC] Stopping audio recording for session: ${sessionId}`);
+        const completeTranscription = await this.services.audioService.stopRecording(sessionId);
+        
+        // Update session state
+        session.isRecording = false;
+        const recordingSource = session.recordingSource || AudioSource.INTERVIEWEE;
+        session.recordingSource = null;
+        
+        console.log(`🎤 [IPC] Recording stopped for session: ${sessionId}`);
+        
+        event.reply('recording-status', {
+          sessionId,
+          isRecording: false
+        });
+        
+        if (completeTranscription && completeTranscription.trim()) {
+          console.log(`🎤 [COMPLETE] Received complete transcription: "${completeTranscription}"`);
+          
+          const sessionWindow = this.sessionWindows.get(sessionId);
+          if (sessionWindow && !sessionWindow.isDestroyed()) {
+            // Show the complete transcription
+            sessionWindow.webContents.send('chat-response', {
+              sessionId,
+              content: `🎤 **Complete Transcription:** ${completeTranscription}`,
+              timestamp: new Date().toISOString(),
+              source: 'complete-audio-transcription'
+            });
+          }
+          
+          // 🎯 NOW send complete transcription to LLM for analysis
+          if (this.services.chatService.isConfigured() && session) {
+            try {
+              console.log(`🎤 [LLM] Sending complete transcription to ChatService for analysis`);
+              const aiResponse = await this.services.chatService.processTranscript(sessionId, completeTranscription, recordingSource);
+              
+              if (sessionWindow && !sessionWindow.isDestroyed()) {
+                sessionWindow.webContents.send('chat-response', {
+                  sessionId,
+                  content: `🤖 **AI Analysis:** ${aiResponse}`,
+                  timestamp: new Date().toISOString(),
+                  source: 'complete-audio-analysis'
+                });
+              }
+            } catch (error) {
+              console.error(`Failed to process complete transcription with ChatService: ${error}`);
+            }
+          }
+        } else {
+          console.log(`🎤 [IPC] No transcription available for session: ${sessionId}`);
+        }
+        
+        console.log(`🎤 [IPC] Recording stop completed for session: ${sessionId}`);
+      } catch (error) {
+        console.log(`❌ [IPC] Stop recording failed for session ${sessionId}: ${(error as Error).message}`);
+        
+        session.isRecording = false;
+        
+        event.reply('recording-error', {
+          sessionId,
+          error: (error as Error).message
+        });
+      }
+    });
   }
 
   private setupRAGHandlers(): void {
