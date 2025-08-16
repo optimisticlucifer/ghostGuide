@@ -1,6 +1,7 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron';
 import OpenAI from 'openai';
 import { GlobalRAGService } from '../services/GlobalRAGService';
+import { LocalRAGService } from '../services/LocalRAGService';
 import { ChatService } from '../services/ChatService';
 import { AudioService } from '../services/AudioService';
 import { RAGService } from '../services/RAGService';
@@ -12,9 +13,12 @@ import { WindowManager } from '../services/WindowManager';
 import { PromptLibraryService } from '../services/PromptLibraryService';
 import { AudioSource, ActionType } from '../types';
 import { CaptureType } from '../services/CaptureService';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface IPCServices {
   globalRagService: GlobalRAGService;
+  localRagService?: LocalRAGService;
   chatService: ChatService;
   audioService: AudioService;
   ragService: RAGService;
@@ -145,7 +149,25 @@ export class IPCController {
             contextualMessage = `[Audio Transcription] The user said: "${message}". Please provide interview coaching advice or answer their question based on this audio input.`;
           }
 
-          aiResponse = await this.services.chatService.sendMessage(sessionId, contextualMessage);
+          const chatResult = await this.services.chatService.sendMessage(sessionId, contextualMessage);
+          aiResponse = chatResult.response;
+          
+          // If RAG context was used, show the enhanced message to the user
+          if (chatResult.ragContextUsed) {
+            const sessionWindow = this.sessionWindows.get(sessionId);
+            if (sessionWindow && !sessionWindow.isDestroyed()) {
+              sessionWindow.webContents.send('chat-response', {
+                sessionId,
+                content: `📝 **Enhanced Message Sent to LLM:**\n\n${chatResult.enhancedMessage}`,
+                timestamp: new Date().toISOString(),
+                metadata: {
+                  source: 'rag-enhanced-message',
+                  action: 'rag'
+                }
+              });
+            }
+          }
+          
           console.log(`🤖 [OPENAI] Generated contextual response for session ${sessionId}`);
         } else {
           console.log(`⚠️ [OPENAI] No API key or session found, using fallback response`);
@@ -848,6 +870,127 @@ export class IPCController {
         });
       }
     });
+
+    // Local RAG handlers
+    ipcMain.on('select-folder-for-rag', async (event, data) => {
+      const { sessionId } = data;
+      console.log(`📁 [LOCAL-RAG] Folder selection requested for session: ${sessionId}`);
+      
+      try {
+        const dialogResult = await dialog.showOpenDialog({
+          title: 'Select Local RAG Materials Folder',
+          properties: ['openDirectory'],
+          message: 'Choose a folder containing documents for this session (.txt, .md, .pdf files)'
+        });
+        
+        if (dialogResult.canceled || !dialogResult.filePaths || dialogResult.filePaths.length === 0) {
+          console.log(`📁 [LOCAL-RAG] Folder selection cancelled for session: ${sessionId}`);
+          event.reply('folder-selected', { success: false });
+          return;
+        }
+        
+        const folderPath = dialogResult.filePaths[0];
+        console.log(`📁 [LOCAL-RAG] Processing folder: ${folderPath}`);
+        
+        // Count files in the folder for feedback
+        const files = await this.countSupportedFiles(folderPath);
+        
+        event.reply('folder-selected', {
+          success: true,
+          path: folderPath,
+          fileCount: files
+        });
+        
+        // Start processing the documents in background
+        if (!this.services.localRagService) {
+          throw new Error('Local RAG service not available');
+        }
+        
+        const ingestResult = await this.services.localRagService.ingestDocuments(sessionId, folderPath);
+        
+        event.reply('rag-processed', {
+          success: ingestResult.success,
+          documentCount: ingestResult.documentsProcessed,
+          embeddingCount: ingestResult.chunksAdded,
+          error: ingestResult.errors.length > 0 ? ingestResult.errors.join(', ') : null
+        });
+        
+      } catch (error) {
+        console.error(`📁 [LOCAL-RAG] Folder selection/processing error:`, error);
+        event.reply('folder-selected', { success: false });
+        event.reply('rag-processed', {
+          success: false,
+          error: (error as Error).message
+        });
+      }
+    });
+    
+    ipcMain.on('refresh-local-rag', async (event, data) => {
+      const { sessionId } = data;
+      console.log(`🔄 [LOCAL-RAG] Refresh requested for session: ${sessionId}`);
+      
+      try {
+        if (!this.services.localRagService) {
+          throw new Error('Local RAG service not available');
+        }
+        
+        const result = await this.services.localRagService.refreshLocalDatabase(sessionId);
+        
+        event.reply('local-rag-refreshed', {
+          success: result.success,
+          documentCount: result.documentsProcessed,
+          error: result.errors.length > 0 ? result.errors.join(', ') : null
+        });
+        
+      } catch (error) {
+        console.error(`🔄 [LOCAL-RAG] Refresh error:`, error);
+        event.reply('local-rag-refreshed', {
+          success: false,
+          error: (error as Error).message
+        });
+      }
+    });
+    
+    ipcMain.on('toggle-global-rag', async (event, data) => {
+      const { sessionId, enabled } = data;
+      console.log(`🌍 [RAG-TOGGLE] Global RAG ${enabled ? 'enabled' : 'disabled'} for session: ${sessionId}`);
+      
+      try {
+        // Update session's global RAG state in ChatService
+        this.services.chatService.setGlobalRAGEnabled(sessionId, enabled);
+        
+        event.reply('global-rag-toggled', {
+          sessionId,
+          enabled
+        });
+        
+      } catch (error) {
+        console.error(`🌍 [RAG-TOGGLE] Global RAG toggle error:`, error);
+      }
+    });
+    
+    ipcMain.on('toggle-local-rag', async (event, data) => {
+      const { sessionId, enabled } = data;
+      console.log(`📁 [RAG-TOGGLE] Local RAG ${enabled ? 'enabled' : 'disabled'} for session: ${sessionId}`);
+      
+      try {
+        // Update local RAG state in LocalRAGService
+        if (this.services.localRagService) {
+          this.services.localRagService.setLocalRAGEnabled(sessionId, enabled);
+        }
+        
+        // Update session's local RAG state in ChatService
+        this.services.chatService.setLocalRAGEnabled(sessionId, enabled);
+        
+        event.reply('local-rag-toggled', {
+          sessionId,
+          enabled
+        });
+        
+      } catch (error) {
+        console.error(`📁 [RAG-TOGGLE] Local RAG toggle error:`, error);
+      }
+    });
   }
 
   private setupGlobalRAGHandlers(): void {
@@ -1170,7 +1313,7 @@ export class IPCController {
       contextMessage += `**Ready to star keep the context with you whenever i send you question of interview give me the best answer !** `;
 
       // Send the context message to ChatService
-      const aiResponse = await this.services.chatService.sendMessage(sessionId, contextMessage, true); // true indicates this is an initialization message
+      const chatResult = await this.services.chatService.sendMessage(sessionId, contextMessage, true); // true indicates this is an initialization message
       
       // Send the initial context message to the session window
       const sessionWindow = this.sessionWindows.get(sessionId);
@@ -1186,7 +1329,7 @@ export class IPCController {
         // Send AI's response
         sessionWindow.webContents.send('chat-response', {
           sessionId,
-          content: aiResponse,
+          content: chatResult.response,
           timestamp: new Date().toISOString(),
           source: 'ai-initialization'
         });
@@ -1195,6 +1338,40 @@ export class IPCController {
       console.log(`🤖 [CONTEXT] Chat session initialized successfully for ${sessionId}`);
     } catch (error) {
       console.error(`🤖 [CONTEXT] Error initializing chat session with context:`, error);
+    }
+  }
+
+  /**
+   * Count supported files in a directory for feedback
+   */
+  private async countSupportedFiles(folderPath: string): Promise<number> {
+    try {
+      const supportedExtensions = ['.txt', '.md', '.pdf', '.docx', '.doc'];
+      let count = 0;
+      
+      const countFilesRecursive = async (dirPath: string) => {
+        const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+        
+        for (const entry of entries) {
+          const fullPath = path.join(dirPath, entry.name);
+          
+          if (entry.isDirectory()) {
+            await countFilesRecursive(fullPath);
+          } else if (entry.isFile()) {
+            const ext = path.extname(entry.name).toLowerCase();
+            if (supportedExtensions.includes(ext)) {
+              count++;
+            }
+          }
+        }
+      };
+      
+      await countFilesRecursive(folderPath);
+      return count;
+      
+    } catch (error) {
+      console.error('Error counting supported files:', error);
+      return 0;
     }
   }
 }

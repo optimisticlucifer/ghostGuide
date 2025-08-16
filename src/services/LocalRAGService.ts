@@ -236,10 +236,24 @@ export class LocalRAGService {
    * Get formatted context strings from search results
    */
   async getContextStrings(sessionId: string, query: string, limit: number = 3): Promise<string[]> {
+    console.log(`🔍 [LOCAL_RAG] Getting context strings for session ${sessionId} with query: "${query.substring(0, 50)}..."`);
     const searchResults = await this.searchRelevantContext(sessionId, query, limit);
+    console.log(`📚 [LOCAL_RAG] Found ${searchResults.length} relevant documents in session ${sessionId}`);
+    
+    if (searchResults.length === 0) {
+      // Debug info to understand why no results
+      const stats = this.sessionStats.get(sessionId);
+      console.log(`🔍 [LOCAL_RAG] Debug for session ${sessionId}:`);
+      console.log(`  - Stats exist: ${!!stats}`);
+      console.log(`  - Is enabled: ${stats?.isEnabled}`);
+      console.log(`  - Total documents: ${stats?.totalDocuments}`);
+      console.log(`  - Total chunks: ${stats?.totalChunks}`);
+      console.log(`  - Database exists: ${this.sessionDatabases.has(sessionId)}`);
+    }
     
     return searchResults.map(result => {
-      return `[Local: ${result.metadata.filename}] ${result.text.substring(0, 500)}${result.text.length > 500 ? '...' : ''}`;
+      // Show more context for better RAG performance - increase from 2000 to 4000 characters
+      return `[Local: ${result.metadata.filename}] ${result.text.substring(0, 4000)}${result.text.length > 4000 ? '...' : ''}`;
     });
   }
 

@@ -13,8 +13,8 @@ interface DocumentChunk {
 
 export class RAGService {
   private knowledgeBases: Map<string, KnowledgeBase> = new Map();
-  private maxChunkSize = 1000; // Characters per chunk
-  private overlapSize = 200; // Overlap between chunks
+  private maxChunkSize = 10000; // Characters per chunk
+  private overlapSize = 2000; // Overlap between chunks
 
   constructor() {
     // Initialize RAG service
@@ -32,7 +32,7 @@ export class RAGService {
       }
 
       const files = fs.readdirSync(folderPath);
-      const supportedExtensions = ['.txt', '.md'];
+      const supportedExtensions = ['.txt', '.md','.pdf', '.doc', '.docx', '.pptx'];
       const documents: Document[] = [];
 
       for (const file of files) {

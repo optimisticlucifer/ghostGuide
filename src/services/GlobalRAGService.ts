@@ -221,7 +221,8 @@ export class GlobalRAGService {
     const searchResults = await this.searchRelevantContext(query, limit);
     
     return searchResults.map(result => {
-      return `[${result.metadata.filename}] ${result.text.substring(0, 500)}${result.text.length > 500 ? '...' : ''}`;
+      // Show more context for better RAG performance - increase from 2000 to 4000 characters
+      return `[Global: ${result.metadata.filename}] ${result.text.substring(0, 4000)}${result.text.length > 4000 ? '...' : ''}`;
     });
   }
 

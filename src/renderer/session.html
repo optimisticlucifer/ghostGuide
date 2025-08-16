@@ -12,6 +12,12 @@
             height: 100vh;
             background: #f8f9fa;
             -webkit-app-region: no-drag;
+            cursor: default !important;
+        }
+        
+        /* Override all cursor styles to ensure consistent arrow cursor */
+        *, *:hover, *:focus, *:active {
+            cursor: default !important;
         }
         
         .toolbar {
@@ -54,21 +60,21 @@
         }
         
         .toolbar button.rag-enabled {
-            background: rgba(40, 167, 69, 0.9);
-            color: white;
-        }
-        
-        .toolbar button.rag-enabled:hover {
-            background: rgba(40, 167, 69, 1);
-        }
-        
-        .toolbar button.rag-disabled {
             background: rgba(220, 53, 69, 0.9);
             color: white;
         }
         
-        .toolbar button.rag-disabled:hover {
+        .toolbar button.rag-enabled:hover {
             background: rgba(220, 53, 69, 1);
+        }
+        
+        .toolbar button.rag-disabled {
+            background: rgba(108, 117, 125, 0.9);
+            color: white;
+        }
+        
+        .toolbar button.rag-disabled:hover {
+            background: rgba(108, 117, 125, 1);
         }
         
         .toolbar button.refresh-btn {
@@ -280,8 +286,8 @@
         <button id="recordInterviewee" title="Record Interviewee (Microphone)">🎙️</button>
         <button id="addRAG" title="Add Material for RAG">📚</button>
         <button id="refreshLocalRAG" class="rag-control refresh-btn" title="Refresh Local RAG Database">🔄 Local</button>
-        <button id="toggleGlobalRAG" class="rag-control rag-enabled" title="Toggle Global RAG">🌍 Global</button>
-        <button id="toggleLocalRAG" class="rag-control rag-enabled" title="Toggle Local RAG">📁 Local</button>
+        <button id="toggleGlobalRAG" class="rag-control rag-disabled" title="Toggle Global RAG">🌍 Global</button>
+        <button id="toggleLocalRAG" class="rag-control rag-disabled" title="Toggle Local RAG">📁 Local</button>
         <button id="close" title="Close Session">✕</button>
     </div>
     

@@ -78,6 +78,8 @@ export interface ChatMessage {
     action?: ActionType;
     source?: AudioSource;
     ocrText?: string;
+    ragContextUsed?: boolean;
+    enhancedMessage?: string;
   };
 }
 

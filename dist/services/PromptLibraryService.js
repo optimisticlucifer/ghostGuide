@@ -348,6 +348,19 @@ You are an expert ${professionTitle} interview coach. Please provide comprehensi
         return this.getFallbackActionPrompt(action, profession, interviewType);
     }
     /**
+     * Get a persona/profession from the prompt library
+     */
+    getPersona(personaId) {
+        try {
+            const promptLibrary = this.configurationManager?.getPromptLibrary();
+            return promptLibrary ? promptLibrary[personaId] : null;
+        }
+        catch (error) {
+            console.error('Failed to get persona:', error);
+            return null;
+        }
+    }
+    /**
      * Add a new persona/profession to the prompt library
      */
     async addPersona(personaId, personaName) {

@@ -6,6 +6,7 @@ import OpenAI from 'openai';
 
 // Services
 import { GlobalRAGService } from '../services/GlobalRAGService';
+import { LocalRAGService } from '../services/LocalRAGService';
 import { ChatService } from '../services/ChatService';
 import { AudioService } from '../services/AudioService';
 import { RAGService } from '../services/RAGService';
@@ -34,6 +35,7 @@ export class ApplicationController {
   // Services
   private services: {
     globalRagService: GlobalRAGService;
+    localRagService: LocalRAGService;
     chatService: ChatService;
     audioService: AudioService;
     ragService: RAGService;
@@ -209,6 +211,14 @@ export class ApplicationController {
       isSystemRecording: false,
       hasRAG: false
     });
+    
+    // Initialize Local RAG database for this session
+    try {
+      this.services.localRagService.createSessionDatabase(sessionId);
+      this.writeLog(`✅ [APP] Local RAG database initialized for session: ${sessionId}`);
+    } catch (error) {
+      this.writeLog(`⚠️ [APP] Failed to initialize Local RAG database for session ${sessionId}: ${(error as Error).message}`);
+    }
 
     this.writeLog(`✅ [APP] Session window created successfully: ${sessionId}`);
     return sessionWindow;
@@ -220,6 +230,7 @@ export class ApplicationController {
   getServices(): IPCServices {
     return {
       globalRagService: this.services.globalRagService,
+      localRagService: this.services.localRagService,
       chatService: this.services.chatService,
       audioService: this.services.audioService,
       ragService: this.services.ragService,
@@ -300,6 +311,7 @@ export class ApplicationController {
       audioService: new AudioService(),
       ragService: new RAGService(),
       globalRagService: new GlobalRAGService(),
+      localRagService: new LocalRAGService(),
       configurationManager: new ConfigurationManager(),
       promptLibraryService: new PromptLibraryService(),
       sessionManager: new SessionManager(),
@@ -315,12 +327,14 @@ export class ApplicationController {
     // Set up service dependencies
     this.services.promptLibraryService.setConfigurationManager(this.services.configurationManager);
     
-    // Re-create chatService with proper dependencies
+    // Re-create chatService with proper dependencies including RAG services
     this.services.chatService = new ChatService(
       this.services.configurationManager,
       this.services.promptLibraryService,
       this.services.sessionManager,
-      this.services.ragService
+      this.services.ragService,
+      this.services.localRagService,
+      this.services.globalRagService
     );
   }
 
@@ -331,8 +345,14 @@ export class ApplicationController {
       
       // Add default personas
       try {
-        await this.services.promptLibraryService.addPersona('quantitative-finance-engineer', 'Quantitative Finance Engineer');
-        this.writeLog('✅ [APP] Added Quantitative Finance Engineer profession');
+        // Check if persona already exists before adding
+        const existingPersona = this.services.promptLibraryService.getPersona('quantitative-finance-engineer');
+        if (!existingPersona) {
+          await this.services.promptLibraryService.addPersona('quantitative-finance-engineer', 'Quantitative Finance Engineer');
+          this.writeLog('✅ [APP] Added Quantitative Finance Engineer profession');
+        } else {
+          this.writeLog('ℹ️ [APP] Quantitative Finance Engineer profession already exists');
+        }
       } catch (error) {
         this.writeLog(`ℹ️ [APP] Quantitative Finance Engineer profession: ${(error as Error).message}`);
       }
@@ -347,6 +367,14 @@ export class ApplicationController {
         this.writeLog('✅ [APP] Global RAG service initialized successfully');
       } catch (error) {
         this.writeLog(`⚠️ [APP] Global RAG service initialization failed: ${(error as Error).message}`);
+      }
+      
+      // Initialize Local RAG service
+      try {
+        await this.services.localRagService.initialize();
+        this.writeLog('✅ [APP] Local RAG service initialized successfully');
+      } catch (error) {
+        this.writeLog(`⚠️ [APP] Local RAG service initialization failed: ${(error as Error).message}`);
       }
       
       this.writeLog('✅ [APP] All services initialized successfully');
@@ -580,8 +608,17 @@ export class ApplicationController {
   }
 
   private setupSessionWindowEvents(window: BrowserWindow, sessionId: string): void {
-    window.on('closed', () => {
+    window.on('closed', async () => {
       this.writeLog(`🪟 [APP] Session window closed: ${sessionId}`);
+      
+      // Clean up local RAG database for this session
+      try {
+        await this.services.localRagService.deleteSessionDatabase(sessionId);
+        this.writeLog(`✅ [APP] Local RAG database cleaned up for session: ${sessionId}`);
+      } catch (error) {
+        this.writeLog(`⚠️ [APP] Failed to clean up local RAG database for session ${sessionId}: ${(error as Error).message}`);
+      }
+      
       this.sessionWindows.delete(sessionId);
       this.sessions.delete(sessionId);
     });
@@ -606,6 +643,12 @@ export class ApplicationController {
             overflow: hidden;
             -webkit-app-region: drag;
             box-sizing: border-box;
+            cursor: default !important;
+          }
+          
+          /* Override all cursor styles to ensure consistent arrow cursor */
+          *, *:hover, *:focus, *:active {
+            cursor: default !important;
           }
           .container {
             display: flex;

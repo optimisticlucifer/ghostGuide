@@ -7,8 +7,8 @@ class SessionWindowRenderer {
     this.currentRecordingSource = null;
     
     // RAG State Management
-    this.globalRAGEnabled = true;
-    this.localRAGEnabled = true;
+    this.globalRAGEnabled = false;
+    this.localRAGEnabled = false;
     
     this.initializeElements();
     this.setupEventListeners();
@@ -301,19 +301,19 @@ class SessionWindowRenderer {
   updateRAGButtonState(type) {
     if (type === 'global' && this.toggleGlobalRAGBtn) {
       if (this.globalRAGEnabled) {
-        this.toggleGlobalRAGBtn.classList.add('enabled');
-        this.toggleGlobalRAGBtn.classList.remove('disabled');
+        this.toggleGlobalRAGBtn.classList.add('rag-enabled');
+        this.toggleGlobalRAGBtn.classList.remove('rag-disabled');
       } else {
-        this.toggleGlobalRAGBtn.classList.add('disabled');
-        this.toggleGlobalRAGBtn.classList.remove('enabled');
+        this.toggleGlobalRAGBtn.classList.add('rag-disabled');
+        this.toggleGlobalRAGBtn.classList.remove('rag-enabled');
       }
     } else if (type === 'local' && this.toggleLocalRAGBtn) {
       if (this.localRAGEnabled) {
-        this.toggleLocalRAGBtn.classList.add('enabled');
-        this.toggleLocalRAGBtn.classList.remove('disabled');
+        this.toggleLocalRAGBtn.classList.add('rag-enabled');
+        this.toggleLocalRAGBtn.classList.remove('rag-disabled');
       } else {
-        this.toggleLocalRAGBtn.classList.add('disabled');
-        this.toggleLocalRAGBtn.classList.remove('enabled');
+        this.toggleLocalRAGBtn.classList.add('rag-disabled');
+        this.toggleLocalRAGBtn.classList.remove('rag-enabled');
       }
     }
   }
@@ -342,7 +342,20 @@ class SessionWindowRenderer {
     messageDiv.className = `message ${role}`;
     
     const contentDiv = document.createElement('div');
-    contentDiv.textContent = content;
+    
+    // Handle special formatting for RAG enhanced messages or markdown-like content
+    if (metadata.source === 'rag-enhanced-message' || content.includes('**') || content.includes('\n\n')) {
+      // Convert basic markdown to HTML for better formatting
+      let formattedContent = content
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold text
+        .replace(/\n\n/g, '<br><br>') // Double newlines to double line breaks
+        .replace(/\n/g, '<br>'); // Single newlines to line breaks
+      
+      contentDiv.innerHTML = formattedContent;
+    } else {
+      contentDiv.textContent = content;
+    }
+    
     messageDiv.appendChild(contentDiv);
     
     const timestampDiv = document.createElement('div');

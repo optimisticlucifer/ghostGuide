@@ -98,6 +98,50 @@ class SettingsRenderer {
       }
     });
     
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (event) => {
+      // Enhanced debugging for Cmd+G
+      if (event.metaKey || event.ctrlKey) {
+        console.log('🔧 [SETTINGS] Modifier key pressed:', {
+          key: event.key,
+          code: event.code,
+          metaKey: event.metaKey,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey
+        });
+      }
+      
+      // Cmd+G (macOS) or Ctrl+G (Windows/Linux) to hide window
+      // Try multiple variants: key === 'g', key === 'G', or code === 'KeyG'
+      if ((event.metaKey || event.ctrlKey) && 
+          (event.key === 'g' || event.key === 'G' || event.code === 'KeyG')) {
+        event.preventDefault();
+        console.log('🔧 [SETTINGS] Cmd+G detected - closing settings window');
+        console.log('🔧 [SETTINGS] Event details:', {
+          key: event.key,
+          code: event.code,
+          metaKey: event.metaKey,
+          ctrlKey: event.ctrlKey
+        });
+        
+        // Try multiple ways to close the window
+        try {
+          window.close();
+          console.log('🔧 [SETTINGS] window.close() called');
+        } catch (error) {
+          console.error('🔧 [SETTINGS] Error calling window.close():', error);
+          // Alternative: send IPC message to close window
+          try {
+            ipcRenderer.send('close-settings-window');
+            console.log('🔧 [SETTINGS] IPC close message sent');
+          } catch (ipcError) {
+            console.error('🔧 [SETTINGS] Error sending IPC close message:', ipcError);
+          }
+        }
+      }
+    });
+    
     // IPC listeners
     this.setupIpcListeners();
   }

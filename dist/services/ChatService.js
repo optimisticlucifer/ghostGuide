@@ -36,16 +36,30 @@ class ChatService {
             try {
                 // Get local RAG context if enabled
                 if (this.isLocalRAGEnabled(sessionId) && this.localRAGService) {
+                    console.log(`📚 [CHAT] Searching local RAG for session ${sessionId} with query: "${message.substring(0, 50)}..."`);
                     const localResults = await this.localRAGService.getContextStrings(sessionId, message, 3);
-                    ragContextSources.push(...localResults);
+                    if (localResults.length > 0) {
+                        console.log(`✅ [CHAT] Found ${localResults.length} local RAG results`);
+                        ragContextSources.push(...localResults);
+                    }
+                    else {
+                        console.log(`⚠️ [CHAT] No local RAG results found for session ${sessionId}`);
+                    }
                 }
                 // Get global RAG context if enabled  
                 if (this.isGlobalRAGEnabled(sessionId) && this.globalRAGService) {
+                    console.log(`🌍 [CHAT] Searching global RAG with query: "${message.substring(0, 50)}..."`);
                     const globalResults = await this.globalRAGService.getContextStrings(message, 3);
-                    ragContextSources.push(...globalResults);
+                    if (globalResults.length > 0) {
+                        console.log(`✅ [CHAT] Found ${globalResults.length} global RAG results`);
+                        ragContextSources.push(...globalResults);
+                    }
+                    else {
+                        console.log(`⚠️ [CHAT] No global RAG results found`);
+                    }
                 }
                 // Fallback to original RAG service if others are not available
-                if (ragContextSources.length === 0) {
+                if (ragContextSources.length === 0 && !this.isLocalRAGEnabled(sessionId) && !this.isGlobalRAGEnabled(sessionId)) {
                     const fallbackContext = await this.ragService.searchRelevantContent(message, sessionId);
                     ragContextSources.push(...fallbackContext);
                 }
@@ -56,7 +70,8 @@ class ChatService {
             }
             // Enhance message with RAG context if available
             let enhancedMessage = message;
-            if (ragContextSources.length > 0) {
+            const ragContextUsed = ragContextSources.length > 0;
+            if (ragContextUsed) {
                 enhancedMessage = `${message}\n\nRelevant context from your materials:\n${ragContextSources.join('\n\n')}`;
             }
             // Add current user message
@@ -75,7 +90,9 @@ class ChatService {
                 content: message,
                 timestamp,
                 metadata: {
-                    action: types_1.ActionType.GENERAL
+                    action: types_1.ActionType.GENERAL,
+                    ragContextUsed,
+                    enhancedMessage: ragContextUsed ? enhancedMessage : undefined
                 }
             });
             await this.sessionManager.addChatMessage(sessionId, {
@@ -88,7 +105,7 @@ class ChatService {
                     action: types_1.ActionType.GENERAL
                 }
             });
-            return response;
+            return { response, enhancedMessage, ragContextUsed };
         }
         catch (error) {
             console.error('Failed to send message:', error);
@@ -380,17 +397,13 @@ class ChatService {
      * Check if global RAG is enabled for a session
      */
     isGlobalRAGEnabled(sessionId) {
-        // Default to enabled if not explicitly disabled
-        return this.globalRAGEnabledSessions.has(sessionId) ||
-            (!this.globalRAGEnabledSessions.has(sessionId) && this.globalRAGEnabledSessions.size === 0);
+        return this.globalRAGEnabledSessions.has(sessionId);
     }
     /**
      * Check if local RAG is enabled for a session
      */
     isLocalRAGEnabled(sessionId) {
-        // Default to enabled if not explicitly disabled
-        return this.localRAGEnabledSessions.has(sessionId) ||
-            (!this.localRAGEnabledSessions.has(sessionId) && this.localRAGEnabledSessions.size === 0);
+        return this.localRAGEnabledSessions.has(sessionId);
     }
     /**
      * Initialize RAG settings for a new session (both enabled by default)

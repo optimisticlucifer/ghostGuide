@@ -40,8 +40,8 @@ const crypto_1 = require("crypto");
 class RAGService {
     constructor() {
         this.knowledgeBases = new Map();
-        this.maxChunkSize = 1000; // Characters per chunk
-        this.overlapSize = 200; // Overlap between chunks
+        this.maxChunkSize = 10000; // Characters per chunk
+        this.overlapSize = 2000; // Overlap between chunks
         // Initialize RAG service
     }
     /**
@@ -54,7 +54,7 @@ class RAGService {
                 throw new Error('Folder path does not exist');
             }
             const files = fs.readdirSync(folderPath);
-            const supportedExtensions = ['.txt', '.md'];
+            const supportedExtensions = ['.txt', '.md', '.pdf', '.doc', '.docx', '.pptx'];
             const documents = [];
             for (const file of files) {
                 const filePath = path.join(folderPath, file);

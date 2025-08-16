@@ -356,7 +356,7 @@ class ConfigurationManager {
             },
             rag: {
                 embeddingModel: 'text-embedding-3-small',
-                chunkSize: 1000,
+                chunkSize: 5000,
                 maxResults: 5
             },
             ui: {
