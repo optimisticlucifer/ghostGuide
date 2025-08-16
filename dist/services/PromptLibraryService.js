@@ -246,13 +246,57 @@ class PromptLibraryService {
      * Get fallback action prompt
      */
     getFallbackActionPrompt(action, profession, interviewType) {
+        const professionTitle = profession.replace('-', ' ');
         switch (action) {
             case types_1.ActionType.SCREENSHOT:
-                return `Analyze this ${interviewType} question or content for a ${profession.replace('-', ' ')} interview. Provide a clear explanation and suggest an approach to solve it.`;
+                return `🔍 **Screenshot Analysis Request**
+
+You are an expert ${professionTitle} interviewer and coach. Please analyze the following screenshot content captured during a ${interviewType} interview preparation session.
+
+**Your Task:**
+1. **Identify** what type of content this is (coding problem, system design, behavioral question, technical documentation, etc.)
+2. **Analyze** the core concepts, requirements, or challenges presented
+3. **Provide Guidance** tailored for a ${professionTitle} ${interviewType} interview context
+4. **Suggest Approach** - Give step-by-step recommendations on how to tackle this
+5. **Key Points** - Highlight important details the candidate should focus on
+6. **Best Practices** - Share relevant industry standards and interview tips
+
+**Context:** This is for ${professionTitle} ${interviewType} interview preparation. Provide practical, actionable advice that demonstrates deep understanding of both the technical content and interview dynamics.
+
+**Analysis of Screenshot Content:**`;
             case types_1.ActionType.DEBUG:
-                return `Review this code for bugs, errors, or improvements in the context of a ${profession.replace('-', ' ')} ${interviewType} interview. Identify issues and provide specific corrections.`;
+                return `🐛 **Code Debugging Analysis Request**
+
+You are an expert ${professionTitle} interviewer and code reviewer. Please thoroughly analyze the following code captured during a ${interviewType} interview preparation session.
+
+**Your Task:**
+1. **Code Review** - Examine the code structure, logic, and implementation
+2. **Bug Detection** - Identify any syntax errors, logical bugs, or runtime issues
+3. **Performance Analysis** - Assess efficiency, scalability, and optimization opportunities
+4. **Best Practices** - Check adherence to coding standards and industry conventions
+5. **Interview Perspective** - Evaluate how this would be received in a ${professionTitle} ${interviewType} interview
+6. **Improvement Suggestions** - Provide specific, actionable recommendations
+7. **Alternative Approaches** - Suggest better solutions or different methodologies
+
+**Context:** This is for ${professionTitle} ${interviewType} interview preparation. Focus on both correctness and demonstrating strong engineering practices that interviewers value.
+
+**Code Analysis:**`;
             default:
-                return `Provide guidance for this ${interviewType} interview question in the context of ${profession.replace('-', ' ')} role.`;
+                return `📋 **Interview Question Analysis**
+
+You are an expert ${professionTitle} interview coach. Please provide comprehensive guidance for the following ${interviewType} interview content.
+
+**Your Task:**
+1. **Question Analysis** - Break down what the interviewer is really asking
+2. **Key Concepts** - Identify the core knowledge areas being tested
+3. **Structured Response** - Provide a framework for answering effectively
+4. **Examples & Evidence** - Suggest relevant examples to strengthen the response
+5. **Common Pitfalls** - Warn about typical mistakes candidates make
+6. **Follow-up Preparation** - Anticipate likely follow-up questions
+
+**Context:** This is ${professionTitle} ${interviewType} interview preparation. Provide actionable advice that will help the candidate succeed.
+
+**Analysis:**`;
         }
     }
     /**

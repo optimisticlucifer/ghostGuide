@@ -13,10 +13,18 @@ class SessionWindowRenderer {
   }
 
   getSessionId() {
-    // Extract session ID from command line arguments
+    // Check for global session ID variable first (set by ApplicationController)
+    if (window.GHOST_GUIDE_SESSION_ID) {
+      console.log('🎯 [SESSION] Using global session ID:', window.GHOST_GUIDE_SESSION_ID);
+      return window.GHOST_GUIDE_SESSION_ID;
+    }
+    
+    // Fallback: Extract session ID from command line arguments  
     const args = process.argv;
     const sessionArg = args.find(arg => arg.startsWith('--session-id='));
-    return sessionArg ? sessionArg.split('=')[1] : 'unknown';
+    const cmdSessionId = sessionArg ? sessionArg.split('=')[1] : 'unknown';
+    console.log('🎯 [SESSION] Using command line session ID:', cmdSessionId);
+    return cmdSessionId;
   }
 
   initializeElements() {
@@ -25,8 +33,6 @@ class SessionWindowRenderer {
     this.debugBtn = document.getElementById('debug');
     this.recordInterviewerBtn = document.getElementById('recordInterviewer');
     this.recordIntervieweeBtn = document.getElementById('recordInterviewee');
-    this.recordBothBtn = document.getElementById('recordBoth');
-    this.recordSystemBtn = document.getElementById('recordSystem');
     this.addRAGBtn = document.getElementById('addRAG');
     this.closeBtn = document.getElementById('close');
     
@@ -48,19 +54,19 @@ class SessionWindowRenderer {
     // Toolbar button events
     this.screenshotBtn.addEventListener('click', () => this.captureScreenshot());
     this.debugBtn.addEventListener('click', () => this.debugCode());
-    this.recordInterviewerBtn.addEventListener('click', () => this.toggleRecording('interviewer'));
+    this.recordInterviewerBtn.addEventListener('click', () => this.toggleRecording('system')); // Use system audio for interviewer
     this.recordIntervieweeBtn.addEventListener('click', () => this.toggleRecording('interviewee'));
-    this.recordBothBtn.addEventListener('click', () => this.toggleRecording('both'));
-    this.recordSystemBtn.addEventListener('click', () => this.toggleRecording('system'));
     this.addRAGBtn.addEventListener('click', () => this.addRAGMaterial());
     this.closeBtn.addEventListener('click', () => this.closeSession());
     
     // Chat input events
     this.sendMessageBtn.addEventListener('click', () => this.sendMessage());
-    this.messageInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
+    this.messageInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
         this.sendMessage();
       }
+      // Shift+Enter will create a new line (default behavior)
     });
     
     // Auto-scroll chat messages
@@ -75,17 +81,47 @@ class SessionWindowRenderer {
       this.addMessage('assistant', response.content, response.metadata);
     });
     
-    ipcRenderer.on('ocr-result', (event, result) => {
+    // 🎯 NEW: Multi-step screenshot capture flow
+    ipcRenderer.on('screenshot-captured', (event, result) => {
+      console.log('🎯 [UI] Received screenshot-captured event:', result);
+      
       this.hideLoading();
       
-      // Display the extracted text
-      this.addMessage('assistant', `📷 Screenshot captured and processed:\n\n${result.text}`, { 
+      // Show the captured OCR text and action buttons
+      this.addMessage('assistant', `📷 Screenshot captured!\n\nExtracted text: ${result.text}`, {
         action: 'screenshot',
         timestamp: result.timestamp
       });
       
-      // TODO: Send to ChatGPT for analysis
-      // For now, just show the extracted text
+      console.log('🎯 [UI] Adding capture action buttons for screenshot');
+      
+      // Add action buttons for multi-step capture
+      this.addCaptureActionButtons(result.sessionId, 'screenshot', result.accumulatedText || result.text);
+      
+      console.log('🎯 [UI] addCaptureActionButtons completed!');
+    });
+    
+    // 🎯 NEW: Multi-step debug capture flow  
+    ipcRenderer.on('debug-captured', (event, result) => {
+      this.hideLoading();
+      
+      // Show the captured OCR text and action buttons
+      this.addMessage('assistant', `🐛 Code captured for debugging!\n\nExtracted text: ${result.text}`, {
+        action: 'debug',
+        timestamp: result.timestamp
+      });
+      
+      // Add action buttons for multi-step debug capture
+      this.addCaptureActionButtons(result.sessionId, 'debug', result.accumulatedText || result.text);
+    });
+    
+    // Legacy handlers for backward compatibility
+    ipcRenderer.on('ocr-result', (event, result) => {
+      this.hideLoading();
+      this.addMessage('assistant', `📷 ${result.analysis}`, { 
+        action: 'screenshot',
+        timestamp: result.timestamp
+      });
     });
     
     ipcRenderer.on('ocr-error', (event, error) => {
@@ -231,26 +267,188 @@ class SessionWindowRenderer {
     this.isRecording = isRecording;
     this.currentRecordingSource = source;
     
-    // Update button states
-    [this.recordInterviewerBtn, this.recordIntervieweeBtn, this.recordBothBtn, this.recordSystemBtn].forEach(btn => {
-      btn.classList.remove('active');
+    // Update button states (only existing buttons)
+    [this.recordInterviewerBtn, this.recordIntervieweeBtn].forEach(btn => {
+      if (btn) btn.classList.remove('active');
     });
     
     if (isRecording) {
       this.recordingIndicator.classList.add('active');
       
       // Highlight active recording button
-      if (source === 'interviewer') this.recordInterviewerBtn.classList.add('active');
+      if (source === 'system') this.recordInterviewerBtn.classList.add('active'); // Interviewer uses system audio
       else if (source === 'interviewee') this.recordIntervieweeBtn.classList.add('active');
-      else if (source === 'both') this.recordBothBtn.classList.add('active');
-      else if (source === 'system') this.recordSystemBtn.classList.add('active');
     } else {
       this.recordingIndicator.classList.remove('active');
     }
   }
+
+  /**
+   * 🎯 NEW: Add capture action buttons for multi-step screenshot/debug flow
+   */
+  addCaptureActionButtons(sessionId, actionType, accumulatedText) {
+    console.log('🎯 [UI] addCaptureActionButtons called:', { sessionId, actionType, accumulatedText: accumulatedText.substring(0, 100) + '...' });
+    
+    // IMMEDIATE DEBUG MESSAGE to verify function is called
+    this.addMessage('system', '🎯 [DEBUG] addCaptureActionButtons function STARTED!', { action: 'debug' });
+    
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'message assistant capture-actions';
+    
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'capture-actions-header';
+    headerDiv.textContent = actionType === 'screenshot' ? 
+      '📷 Need more context? Choose an action:' : 
+      '🐛 Need more code context? Choose an action:';
+    actionsDiv.appendChild(headerDiv);
+    
+    const buttonsContainer = document.createElement('div');
+    buttonsContainer.className = 'capture-action-buttons';
+    
+    // Create the four action buttons
+    const actions = [
+      { id: 'capture-more', text: '📷 Capture More', type: 'full' },
+      { id: 'capture-left', text: '⬅️ Left Half', type: 'left_half' },
+      { id: 'capture-right', text: '➡️ Right Half', type: 'right_half' },
+      { id: 'no-need', text: '✅ No Need - Analyze', type: 'analyze' }
+    ];
+    
+    actions.forEach(action => {
+      const button = document.createElement('button');
+      button.className = 'capture-action-btn';
+      button.textContent = action.text;
+      button.setAttribute('data-action', action.type);
+      button.setAttribute('data-session-id', sessionId);
+      button.setAttribute('data-action-type', actionType);
+      button.setAttribute('data-accumulated-text', accumulatedText);
+      
+      // Add click handler
+      button.addEventListener('click', (e) => this.handleCaptureAction(e));
+      
+      buttonsContainer.appendChild(button);
+    });
+    
+    actionsDiv.appendChild(buttonsContainer);
+    
+    // Add timestamp
+    const timestampDiv = document.createElement('div');
+    timestampDiv.className = 'timestamp';
+    timestampDiv.textContent = new Date().toLocaleTimeString();
+    actionsDiv.appendChild(timestampDiv);
+    
+    this.chatMessages.appendChild(actionsDiv);
+    this.scrollToBottom();
+  }
+
+  /**
+   * 🎯 NEW: Handle capture action button clicks
+   */
+  handleCaptureAction(event) {
+    const button = event.target;
+    const action = button.getAttribute('data-action');
+    const sessionId = button.getAttribute('data-session-id');
+    const actionType = button.getAttribute('data-action-type'); // 'screenshot' or 'debug'
+    const accumulatedText = button.getAttribute('data-accumulated-text');
+    
+    // Disable all buttons in this group to prevent double-clicks
+    const buttonsContainer = button.parentElement;
+    const allButtons = buttonsContainer.querySelectorAll('.capture-action-btn');
+    allButtons.forEach(btn => {
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+    });
+    
+    // Handle different actions
+    switch (action) {
+      case 'full':
+        this.handleCaptureMore(sessionId, actionType, accumulatedText);
+        break;
+      case 'left_half':
+        this.handleCaptureLeftHalf(sessionId, actionType, accumulatedText);
+        break;
+      case 'right_half':
+        this.handleCaptureRightHalf(sessionId, actionType, accumulatedText);
+        break;
+      case 'analyze':
+        this.handleAnalyzeText(sessionId, actionType, accumulatedText);
+        break;
+    }
+  }
+
+  /**
+   * 🎯 Handle "Capture More" action
+   */
+  handleCaptureMore(sessionId, actionType, accumulatedText) {
+    this.showLoading();
+    this.addMessage('user', `Capturing more ${actionType === 'screenshot' ? 'screenshots' : 'code'}...`);
+    
+    ipcRenderer.send('multi-capture', {
+      sessionId,
+      actionType,
+      captureType: 'full',
+      accumulatedText
+    });
+  }
+
+  /**
+   * 🎯 Handle "Left Half" capture action
+   */
+  handleCaptureLeftHalf(sessionId, actionType, accumulatedText) {
+    this.showLoading();
+    this.addMessage('user', `Capturing left half of screen...`);
+    
+    ipcRenderer.send('multi-capture', {
+      sessionId,
+      actionType,
+      captureType: 'left_half',
+      accumulatedText
+    });
+  }
+
+  /**
+   * 🎯 Handle "Right Half" capture action
+   */
+  handleCaptureRightHalf(sessionId, actionType, accumulatedText) {
+    this.showLoading();
+    this.addMessage('user', `Capturing right half of screen...`);
+    
+    ipcRenderer.send('multi-capture', {
+      sessionId,
+      actionType,
+      captureType: 'right_half',
+      accumulatedText
+    });
+  }
+
+  /**
+   * 🎯 Handle "No Need - Analyze" action
+   */
+  handleAnalyzeText(sessionId, actionType, accumulatedText) {
+    this.showLoading();
+    
+    // Show what we're analyzing
+    this.addMessage('user', `📝 **Starting Analysis**\n\nAnalyzing accumulated ${actionType} text (${accumulatedText.length} characters)...\n\nText being analyzed:\n\n"${accumulatedText.substring(0, 500)}${accumulatedText.length > 500 ? '...' : ''}"`);
+    
+    ipcRenderer.send('analyze-accumulated-text', {
+      sessionId,
+      actionType,
+      accumulatedText
+    });
+  }
 }
 
-// Initialize when DOM is loaded
+// Initialize when DOM is loaded AND global session ID is available
 document.addEventListener('DOMContentLoaded', () => {
-  new SessionWindowRenderer();
+  // Wait for the global session ID to be available
+  const waitForSessionId = () => {
+    if (window.GHOST_GUIDE_SESSION_ID) {
+      console.log('🎯 [SESSION] Global session ID is available, initializing renderer');
+      new SessionWindowRenderer();
+    } else {
+      console.log('🎯 [SESSION] Waiting for global session ID...');
+      setTimeout(waitForSessionId, 50); // Check every 50ms
+    }
+  };
+  
+  waitForSessionId();
 });

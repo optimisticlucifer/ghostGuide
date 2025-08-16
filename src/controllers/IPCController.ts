@@ -10,6 +10,7 @@ import { ConfigurationManager } from '../services/ConfigurationManager';
 import { SessionManager } from '../services/SessionManager';
 import { WindowManager } from '../services/WindowManager';
 import { AudioSource, ActionType } from '../types';
+import { CaptureType } from '../services/CaptureService';
 
 export interface IPCServices {
   globalRagService: GlobalRAGService;
@@ -194,45 +195,65 @@ export class IPCController {
         const ocrText = await this.services.ocrService.extractText(screenshot);
         console.log(`📷 [OCR] OCR extraction completed: "${ocrText.substring(0, 100)}..."`);
 
-        // Step 3: Generate AI analysis using PERSISTENT ChatService
-        let aiAnalysis = '';
-        if (this.services.chatService.isConfigured() && session) {
-          console.log(`🤖 [AI] Using persistent ChatService for screenshot analysis (${session.profession} ${session.interviewType})`);
-          try {
-            aiAnalysis = await this.services.chatService.processOCRText(sessionId, ocrText, ActionType.SCREENSHOT);
-            console.log(`🤖 [AI] Generated persistent OCR analysis for session ${sessionId}`);
-          } catch (error) {
-            console.error(`🤖 [AI] ChatService OCR processing failed:`, error);
-            aiAnalysis = this.generateFallbackAnalysis(ocrText, session.profession, session.interviewType);
-          }
-        } else {
-          console.log(`⚠️ [AI] No ChatService configured, using fallback analysis`);
-          aiAnalysis = this.generateFallbackAnalysis(ocrText, session?.profession || 'software-engineer', session?.interviewType || 'technical');
+        // 🎯 NEW: Use multi-step flow - send captured text with action buttons
+        console.log(`📷 [IPC] Sending screenshot capture result with multi-step options for session ${sessionId}`);
+
+        // Initialize session OCR accumulation if not exists
+        if (!session) {
+          console.error(`❌ [IPC] Session not found: ${sessionId}`);
+          event.reply('screenshot-captured', {
+            sessionId,
+            text: 'Session not found',
+            accumulatedText: '',
+            error: 'Session not found',
+            timestamp: new Date().toISOString()
+          });
+          return;
         }
 
-        console.log(`📷 [IPC] Sending OCR result for session ${sessionId}`);
+        if (!session.accumulatedOCR) {
+          session.accumulatedOCR = {};
+        }
+        
+        // Store initial capture text
+        session.accumulatedOCR['screenshot'] = ocrText;
 
-        event.reply('ocr-result', {
-          sessionId,
-          text: ocrText,
-          analysis: aiAnalysis,
-          debugInfo: {
-            ocrText: ocrText,
-            profession: session?.profession || 'unknown',
-            interviewType: session?.interviewType || 'unknown',
-            hasOpenAI: !!this.services.openai,
-            analysisLength: aiAnalysis.length
-          },
-          timestamp: new Date().toISOString()
-        });
+        // Send to the correct session window
+        console.log(`🔍 [IPC] Looking up session window for: ${sessionId}`);
+        console.log(`🔍 [IPC] Available session windows:`, Array.from(this.sessionWindows.keys()));
+        
+        const sessionWindow = this.sessionWindows.get(sessionId);
+        console.log(`🔍 [IPC] Session window found:`, !!sessionWindow);
+        console.log(`🔍 [IPC] Session window destroyed:`, sessionWindow ? sessionWindow.isDestroyed() : 'N/A');
+        
+        if (sessionWindow && !sessionWindow.isDestroyed()) {
+          console.log(`✅ [IPC] Sending screenshot-captured to session window`);
+          sessionWindow.webContents.send('screenshot-captured', {
+            sessionId,
+            text: ocrText,
+            accumulatedText: ocrText, // Initial capture is the accumulated text
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          console.error(`❌ [IPC] Session window not found or destroyed for session: ${sessionId}`);
+          console.log(`🔄 [IPC] Falling back to event.reply`);
+          // Fallback to event.reply
+          event.reply('screenshot-captured', {
+            sessionId,
+            text: ocrText,
+            accumulatedText: ocrText,
+            timestamp: new Date().toISOString()
+          });
+        }
 
       } catch (error) {
         console.log(`❌ [OCR] Screenshot processing failed: ${(error as Error).message}`);
 
-        event.reply('ocr-result', {
+        event.reply('screenshot-captured', {
           sessionId,
           text: 'Screenshot capture failed',
-          analysis: 'I encountered an error while capturing and analyzing the screenshot. Please try again or check your system permissions.',
+          accumulatedText: '',
+          error: (error as Error).message,
           timestamp: new Date().toISOString()
         });
       }
@@ -244,40 +265,211 @@ export class IPCController {
       console.log(`🐛 [IPC] Code debug requested for session: ${sessionId}`);
 
       try {
+        // Step 1: Capture screenshot
+        console.log(`🐛 [OCR] Starting screen capture for debug...`);
         const screenshot = await this.services.captureService.captureScreen();
-        const ocrText = await this.services.ocrService.extractText(screenshot);
+        console.log(`🐛 [OCR] Debug screen capture completed, size: ${screenshot.length} bytes`);
 
-        let debugAnalysis = '';
-        if (this.services.chatService.isConfigured() && session) {
-          console.log(`🤖 [DEBUG] Using persistent ChatService for debug analysis (${session.profession} ${session.interviewType})`);
-          try {
-            debugAnalysis = await this.services.chatService.processOCRText(sessionId, ocrText, ActionType.DEBUG);
-            console.log(`🤖 [DEBUG] Generated persistent debug analysis for session ${sessionId}`);
-          } catch (error) {
-            console.error(`🤖 [DEBUG] ChatService debug processing failed:`, error);
-            debugAnalysis = this.generateFallbackDebugAnalysis(ocrText, session.profession);
-          }
-        } else {
-          console.log(`⚠️ [DEBUG] No ChatService configured, using fallback analysis`);
-          debugAnalysis = this.generateFallbackDebugAnalysis(ocrText, session?.profession || 'software-engineer');
+        // Step 2: Extract text using OCR
+        console.log(`🐛 [OCR] Starting OCR text extraction for debug...`);
+        const ocrText = await this.services.ocrService.extractText(screenshot);
+        console.log(`🐛 [OCR] Debug OCR extraction completed: "${ocrText.substring(0, 100)}..."`);
+
+        // 🎯 NEW: Use multi-step flow - send captured text with action buttons
+        console.log(`🐛 [IPC] Sending debug capture result with multi-step options for session ${sessionId}`);
+
+        // Initialize session OCR accumulation if not exists
+        if (!session) {
+          console.error(`❌ [IPC] Debug session not found: ${sessionId}`);
+          event.reply('debug-captured', {
+            sessionId,
+            text: 'Session not found',
+            accumulatedText: '',
+            error: 'Session not found',
+            timestamp: new Date().toISOString()
+          });
+          return;
         }
 
-        console.log(`🐛 [IPC] Sending debug result for session ${sessionId}`);
+        if (!session.accumulatedOCR) {
+          session.accumulatedOCR = {};
+        }
+        
+        // Store initial capture text
+        session.accumulatedOCR['debug'] = ocrText;
 
-        event.reply('debug-result', {
-          sessionId,
-          text: ocrText,
-          analysis: debugAnalysis,
-          timestamp: new Date().toISOString()
-        });
+        // Send to the correct session window
+        console.log(`🔍 [IPC] Looking up debug session window for: ${sessionId}`);
+        console.log(`🔍 [IPC] Available debug session windows:`, Array.from(this.sessionWindows.keys()));
+        
+        const sessionWindow = this.sessionWindows.get(sessionId);
+        console.log(`🔍 [IPC] Debug session window found:`, !!sessionWindow);
+        console.log(`🔍 [IPC] Debug session window destroyed:`, sessionWindow ? sessionWindow.isDestroyed() : 'N/A');
+        
+        if (sessionWindow && !sessionWindow.isDestroyed()) {
+          console.log(`✅ [IPC] Sending debug-captured to session window`);
+          sessionWindow.webContents.send('debug-captured', {
+            sessionId,
+            text: ocrText,
+            accumulatedText: ocrText, // Initial capture is the accumulated text
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          console.error(`❌ [IPC] Debug session window not found or destroyed for session: ${sessionId}`);
+          console.log(`🔄 [IPC] Falling back to event.reply for debug`);
+          // Fallback to event.reply
+          event.reply('debug-captured', {
+            sessionId,
+            text: ocrText,
+            accumulatedText: ocrText,
+            timestamp: new Date().toISOString()
+          });
+        }
 
       } catch (error) {
         console.log(`❌ [DEBUG] Debug processing failed: ${(error as Error).message}`);
 
-        event.reply('debug-result', {
+        event.reply('debug-captured', {
           sessionId,
           text: 'Debug capture failed',
-          analysis: 'I encountered an error while capturing and analyzing the code. Please try again or check your system permissions.',
+          accumulatedText: '',
+          error: (error as Error).message,
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+
+    // 🎯 NEW: Multi-step capture handler
+    ipcMain.on('multi-capture', async (event, data) => {
+      const { sessionId, actionType, captureType, accumulatedText } = data;
+      const session = this.sessions.get(sessionId);
+      console.log(`📷 [MULTI-CAPTURE] Multi-step ${actionType} capture requested: ${captureType} for session ${sessionId}`);
+
+      try {
+        // Map captureType string to CaptureType enum
+        let captureTypeEnum: CaptureType;
+        switch (captureType) {
+          case 'full':
+            captureTypeEnum = CaptureType.FULL;
+            break;
+          case 'left_half':
+            captureTypeEnum = CaptureType.LEFT_HALF;
+            break;
+          case 'right_half':
+            captureTypeEnum = CaptureType.RIGHT_HALF;
+            break;
+          default:
+            throw new Error(`Unknown capture type: ${captureType}`);
+        }
+
+        console.log(`📷 [MULTI-CAPTURE] Capturing ${captureTypeEnum} screen...`);
+        const screenshot = await this.services.captureService.captureScreenWithType(captureTypeEnum);
+        console.log(`📷 [MULTI-CAPTURE] Screen capture completed, size: ${screenshot.length} bytes`);
+
+        // Extract text using OCR
+        console.log(`📷 [MULTI-CAPTURE] Starting OCR text extraction...`);
+        const newOcrText = await this.services.ocrService.extractText(screenshot);
+        console.log(`📷 [MULTI-CAPTURE] New OCR extraction completed: "${newOcrText.substring(0, 100)}..."`);
+
+        // Accumulate OCR text - combine with previous accumulated text
+        const combinedText = accumulatedText 
+          ? `${accumulatedText}\n\n--- Additional Capture ---\n\n${newOcrText}` 
+          : newOcrText;
+
+        console.log(`📷 [MULTI-CAPTURE] Accumulated text length: ${combinedText.length} characters`);
+
+        // Initialize session OCR accumulation if not exists
+        if (!session.accumulatedOCR) {
+          session.accumulatedOCR = {};
+        }
+        
+        // Store accumulated text in session for this action type
+        session.accumulatedOCR[actionType] = combinedText;
+
+        console.log(`📷 [MULTI-CAPTURE] Sending ${actionType} capture result for session ${sessionId}`);
+
+        // Send the new capture result with accumulated text to UI
+        const eventName = actionType === 'screenshot' ? 'screenshot-captured' : 'debug-captured';
+        event.reply(eventName, {
+          sessionId,
+          text: newOcrText, // Current capture's text
+          accumulatedText: combinedText, // All accumulated text
+          captureType: captureTypeEnum,
+          timestamp: new Date().toISOString()
+        });
+
+      } catch (error) {
+        console.error(`❌ [MULTI-CAPTURE] ${actionType} multi-capture failed: ${(error as Error).message}`);
+        
+        const eventName = actionType === 'screenshot' ? 'screenshot-captured' : 'debug-captured';
+        event.reply(eventName, {
+          sessionId,
+          text: 'Multi-capture failed',
+          accumulatedText: accumulatedText || '',
+          error: (error as Error).message,
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+
+    // 🎯 NEW: Analyze accumulated text handler
+    ipcMain.on('analyze-accumulated-text', async (event, data) => {
+      const { sessionId, actionType, accumulatedText } = data;
+      const session = this.sessions.get(sessionId);
+      console.log(`🤖 [ANALYZE-ACCUMULATED] Analyzing accumulated ${actionType} text for session ${sessionId}`);
+      console.log(`🤖 [ANALYZE-ACCUMULATED] Text length: ${accumulatedText.length} characters`);
+
+      try {
+        let aiAnalysis = '';
+        if (this.services.chatService.isConfigured() && session) {
+          console.log(`🤖 [ANALYZE-ACCUMULATED] Using persistent ChatService for accumulated ${actionType} analysis`);
+          try {
+            // Use appropriate action type for processing
+            const action = actionType === 'screenshot' ? ActionType.SCREENSHOT : ActionType.DEBUG;
+            aiAnalysis = await this.services.chatService.processOCRText(sessionId, accumulatedText, action);
+            console.log(`🤖 [ANALYZE-ACCUMULATED] Generated analysis for session ${sessionId}`);
+          } catch (error) {
+            console.error(`🤖 [ANALYZE-ACCUMULATED] ChatService processing failed:`, error);
+            aiAnalysis = actionType === 'screenshot' 
+              ? this.generateFallbackAnalysis(accumulatedText, session.profession, session.interviewType)
+              : this.generateFallbackDebugAnalysis(accumulatedText, session.profession);
+          }
+        } else {
+          console.log(`⚠️ [ANALYZE-ACCUMULATED] No ChatService configured, using fallback analysis`);
+          aiAnalysis = actionType === 'screenshot'
+            ? this.generateFallbackAnalysis(accumulatedText, session?.profession || 'software-engineer', session?.interviewType || 'technical')
+            : this.generateFallbackDebugAnalysis(accumulatedText, session?.profession || 'software-engineer');
+        }
+
+        console.log(`🤖 [ANALYZE-ACCUMULATED] Sending analysis result for session ${sessionId}`);
+
+        // Send the final analysis to UI as a regular chat response
+        event.reply('chat-response', {
+          sessionId,
+          content: `📝 **Complete ${actionType === 'screenshot' ? 'Screenshot' : 'Debug'} Analysis:**\n\n${aiAnalysis}`,
+          metadata: {
+            action: actionType,
+            accumulatedTextLength: accumulatedText.length,
+            analysisType: 'accumulated'
+          },
+          timestamp: new Date().toISOString()
+        });
+
+        // Clean up accumulated text for this action type
+        if (session.accumulatedOCR) {
+          delete session.accumulatedOCR[actionType];
+        }
+
+      } catch (error) {
+        console.error(`❌ [ANALYZE-ACCUMULATED] Analysis failed: ${(error as Error).message}`);
+        
+        event.reply('chat-response', {
+          sessionId,
+          content: `❌ **Analysis Error:** I encountered an error while analyzing the accumulated ${actionType} text. Please try again or check your system permissions.`,
+          metadata: {
+            action: actionType,
+            error: true
+          },
           timestamp: new Date().toISOString()
         });
       }

@@ -158,10 +158,10 @@ export class ApplicationController {
     this.writeLog(`🪟 [APP] Creating session window for ${sessionId}: ${JSON.stringify(config)}`);
 
     const sessionWindow = new BrowserWindow({
-      width: 800,
-      height: 600,
-      minWidth: 600,
-      minHeight: 500,
+      width: 400,
+      height: 400,
+      minWidth: 300,
+      minHeight: 300,
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
@@ -173,20 +173,17 @@ export class ApplicationController {
       alwaysOnTop: true,
       skipTaskbar: true,
       show: true,
-      frame: false,
-      transparent: true,
-      hasShadow: false,
+      frame: true,
+      transparent: false,
+      hasShadow: true,
       focusable: true,
-      minimizable: false,
-      maximizable: false,
+      minimizable: true,
+      maximizable: true,
       closable: true,
       movable: true,
       hiddenInMissionControl: true,
       fullscreenable: false,
-      titleBarStyle: 'hidden',
-      vibrancy: 'under-window',
-      visualEffectState: 'inactive',
-      opacity: 1
+      titleBarStyle: 'default'
     });
 
     // Load session window content
@@ -851,6 +848,23 @@ export class ApplicationController {
   }
 
   private loadSessionWindowContent(window: BrowserWindow, sessionId: string, config: any): void {
+    // Load the external session.html file with the session ID passed as a global variable
+    const sessionHtmlPath = path.join(__dirname, '..', 'renderer', 'session.html');
+    
+    // Load the session.html file
+    window.loadFile(sessionHtmlPath);
+    
+    // Set the session ID as a global variable once DOM is ready
+    window.webContents.once('dom-ready', () => {
+      window.webContents.executeJavaScript(`
+        // Set global session ID variable that the renderer can access
+        window.GHOST_GUIDE_SESSION_ID = '${sessionId}';
+        console.log('🎯 [SESSION] Session ID set to:', '${sessionId}');
+      `);
+    });
+    
+    // OLD INLINE HTML CODE (keeping as fallback commented out):
+    /*
     const html = `
       <!DOCTYPE html>
       <html>
@@ -1114,5 +1128,6 @@ export class ApplicationController {
     `;
 
     window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    */
   }
 }
