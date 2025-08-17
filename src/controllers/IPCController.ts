@@ -854,6 +854,92 @@ export class IPCController {
         });
       }
     });
+    
+    // ========================================
+    // AUTO RECORDER MODE IPC HANDLERS
+    // ========================================
+    
+    ipcMain.on('toggle-auto-recorder', async (event, data) => {
+      const { sessionId, active } = data;
+      const session = this.sessions.get(sessionId);
+      
+      console.log(`🔄 [AUTO-RECORDER] Toggle auto recorder requested for session: ${sessionId}, active: ${active}`);
+      
+      if (!session) {
+        console.log(`⚠️ [AUTO-RECORDER] Session not found: ${sessionId}`);
+        event.reply('auto-recorder-status', {
+          sessionId,
+          active: false,
+          error: 'Session not found'
+        });
+        return;
+      }
+      
+      try {
+        if (!this.services.audioService.isReady()) {
+          console.log(`🔄 [AUTO-RECORDER] Initializing audio service...`);
+          await this.services.audioService.initialize();
+          console.log(`🔄 [AUTO-RECORDER] Audio service initialized`);
+        }
+        
+        if (active) {
+          // Start auto recorder mode
+          console.log(`🔄 [AUTO-RECORDER] Starting auto recorder mode for session: ${sessionId}`);
+          await this.services.audioService.startAutoRecorder(sessionId, AudioSource.SYSTEM);
+          session.autoRecorderActive = true;
+          
+          console.log(`🔄 [AUTO-RECORDER] Auto recorder mode started for session: ${sessionId}`);
+        } else {
+          // Stop auto recorder mode
+          console.log(`🔄 [AUTO-RECORDER] Stopping auto recorder mode for session: ${sessionId}`);
+          const finalTranscription = await this.services.audioService.stopAutoRecorder();
+          session.autoRecorderActive = false;
+          
+          console.log(`🔄 [AUTO-RECORDER] Auto recorder mode stopped for session: ${sessionId}`);
+          
+          // If there's a final transcription, send it to the session
+          if (finalTranscription && finalTranscription.trim()) {
+            const sessionWindow = this.sessionWindows.get(sessionId);
+            if (sessionWindow && !sessionWindow.isDestroyed()) {
+              sessionWindow.webContents.send('chat-response', {
+                sessionId,
+                content: `🔄 **Final Auto Recorder Transcription:** ${finalTranscription}`,
+                timestamp: new Date().toISOString(),
+                source: 'auto-recorder-final'
+              });
+            }
+          }
+        }
+        
+        // Send status update to UI
+        event.reply('auto-recorder-status', {
+          sessionId,
+          active: session.autoRecorderActive
+        });
+        
+        // Also send to session window
+        const sessionWindow = this.sessionWindows.get(sessionId);
+        if (sessionWindow && !sessionWindow.isDestroyed()) {
+          sessionWindow.webContents.send('auto-recorder-status', {
+            sessionId,
+            active: session.autoRecorderActive
+          });
+        }
+        
+      } catch (error) {
+        console.log(`❌ [AUTO-RECORDER] Toggle failed for session ${sessionId}: ${(error as Error).message}`);
+        session.autoRecorderActive = false;
+        
+        event.reply('auto-recorder-status', {
+          sessionId,
+          active: false,
+          error: (error as Error).message
+        });
+      }
+    });
+    
+    // NOTE: send-current-transcription is now handled by ApplicationController's global Cmd+S shortcut
+    // This ensures only one handler processes Cmd+S to avoid conflicts and duplicate processing
   }
 
   private setupRAGHandlers(): void {

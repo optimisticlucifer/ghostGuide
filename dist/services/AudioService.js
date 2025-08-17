@@ -82,6 +82,11 @@ class AudioService {
         this.recordings = new Map();
         this.segmentDuration = 5000; // 5 seconds in milliseconds
         this.isInitialized = false;
+        // Auto Recorder Mode state
+        this.autoRecorderActive = false;
+        this.autoRecorderSessionId = null;
+        this.autoRecorderSource = types_1.AudioSource.SYSTEM;
+        this.autoRecorderTranscription = '';
         this.tempDir = path.join(os.tmpdir(), 'interview-assistant-audio');
         this.ensureTempDirectory();
     }
@@ -988,6 +993,196 @@ class AudioService {
                 hasRecentTranscriptions: (recording.recentTranscriptions?.length || 0) > 0
             }))
         };
+    }
+    // ========================================
+    // AUTO RECORDER MODE METHODS
+    // ========================================
+    /**
+     * Start auto recorder mode - continuous recording until explicitly stopped
+     */
+    async startAutoRecorder(sessionId, source = types_1.AudioSource.SYSTEM) {
+        console.log(`🔄 [AUTO RECORDER] Starting auto recorder mode for session ${sessionId} with source ${source}`);
+        if (this.autoRecorderActive) {
+            console.warn('🔄 [AUTO RECORDER] Auto recorder already active, stopping previous session');
+            await this.stopAutoRecorder();
+        }
+        this.autoRecorderActive = true;
+        this.autoRecorderSessionId = sessionId;
+        this.autoRecorderSource = source;
+        this.autoRecorderTranscription = '';
+        // Start continuous recording using existing startRecording method
+        await this.startRecording(source, sessionId);
+        console.log(`✅ [AUTO RECORDER] Auto recorder mode started for session ${sessionId}`);
+    }
+    /**
+     * Stop auto recorder mode
+     */
+    async stopAutoRecorder() {
+        console.log('🔄 [AUTO RECORDER] Stopping auto recorder mode');
+        if (!this.autoRecorderActive || !this.autoRecorderSessionId) {
+            console.warn('🔄 [AUTO RECORDER] No active auto recorder session');
+            return null;
+        }
+        const sessionId = this.autoRecorderSessionId;
+        // Stop the continuous recording
+        const finalTranscription = await this.stopRecording(sessionId);
+        // Get complete accumulated transcription
+        const completeTranscription = this.autoRecorderTranscription + (finalTranscription ? ' ' + finalTranscription : '');
+        // Reset auto recorder state
+        this.autoRecorderActive = false;
+        this.autoRecorderSessionId = null;
+        this.autoRecorderTranscription = '';
+        console.log(`✅ [AUTO RECORDER] Auto recorder mode stopped, final transcription: "${completeTranscription}"`);
+        return completeTranscription?.trim() || null;
+    }
+    /**
+     * Send current accumulated transcription (triggered by Cmd+S)
+     */
+    getCurrentAutoRecorderTranscription() {
+        if (!this.autoRecorderActive || !this.autoRecorderSessionId) {
+            console.warn('🔄 [AUTO RECORDER] No active auto recorder session');
+            return '';
+        }
+        // Get accumulated transcription from the active recording
+        const recording = this.recordings.get(this.autoRecorderSessionId);
+        if (!recording) {
+            console.warn('🔄 [AUTO RECORDER] No active recording found');
+            return this.autoRecorderTranscription;
+        }
+        const currentTranscription = recording.accumulatedTranscription || '';
+        console.log(`🔄 [AUTO RECORDER] Current transcription: "${currentTranscription}"`);
+        return currentTranscription;
+    }
+    /**
+     * Reset accumulated transcription context (after sending to LLM)
+     */
+    resetAutoRecorderTranscription() {
+        if (!this.autoRecorderActive || !this.autoRecorderSessionId) {
+            console.warn('🔄 [AUTO RECORDER] No active auto recorder session');
+            return;
+        }
+        // Reset the accumulated transcription in the active recording
+        const recording = this.recordings.get(this.autoRecorderSessionId);
+        if (recording) {
+            recording.accumulatedTranscription = '';
+        }
+        this.autoRecorderTranscription = '';
+        console.log('🔄 [AUTO RECORDER] Transcription context reset');
+    }
+    /**
+     * Check if auto recorder is currently active
+     */
+    isAutoRecorderActive() {
+        return this.autoRecorderActive;
+    }
+    /**
+     * Get auto recorder status
+     */
+    getAutoRecorderStatus() {
+        return {
+            active: this.autoRecorderActive,
+            sessionId: this.autoRecorderSessionId,
+            source: this.autoRecorderSource,
+            currentTranscription: this.getCurrentAutoRecorderTranscription()
+        };
+    }
+    /**
+     * Wait for any pending transcription segment to complete before processing Cmd+S
+     * This ensures we capture the last 5-second segment that might still be processing
+     *
+     * IMPROVED: Always processes current audio regardless of duration, even if < 5 seconds
+     */
+    async waitForPendingTranscription() {
+        if (!this.autoRecorderActive || !this.autoRecorderSessionId) {
+            console.log('🔄 [AUTO RECORDER] No active auto recorder, no pending transcription to wait for');
+            return;
+        }
+        const recording = this.recordings.get(this.autoRecorderSessionId);
+        if (!recording || !recording.isActive) {
+            console.log('🔄 [AUTO RECORDER] No active recording, no pending transcription to wait for');
+            return;
+        }
+        console.log('🔄 [AUTO RECORDER] Processing current audio for immediate transcription...');
+        // Strategy 1: Extract and process ALL current audio immediately, regardless of duration
+        // This ensures we capture ANY speech that's currently in the buffer, even if < 5 seconds
+        try {
+            const now = new Date();
+            const segmentId = `cmd-s-${this.autoRecorderSessionId}-${now.getTime()}`;
+            const segmentFile = path.join(this.tempDir, `segment-${segmentId}.wav`);
+            // Calculate duration since recording started
+            const recordingDuration = now.getTime() - recording.startTime.getTime();
+            console.log(`🔄 [AUTO RECORDER] Total recording duration so far: ${recordingDuration}ms`);
+            if (recordingDuration < 1000) {
+                console.log('🔄 [AUTO RECORDER] Recording just started (< 1 second), may not have enough audio data yet');
+                // Continue anyway - we'll try to process whatever is available
+            }
+            // Extract ALL audio recorded so far
+            // This is different from the segment processing which only does 5-second chunks
+            if (fs.existsSync(recording.outputFile)) {
+                const stats = fs.statSync(recording.outputFile);
+                console.log(`🔄 [AUTO RECORDER] Current recording file size: ${stats.size} bytes`);
+                if (stats.size < 1000) {
+                    console.log('🔄 [AUTO RECORDER] Recording file too small, trying to wait briefly for more data...');
+                    // Wait a moment to let some audio accumulate
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+                // Copy the entire current recording file to process it
+                try {
+                    fs.copyFileSync(recording.outputFile, segmentFile);
+                    console.log(`🔄 [AUTO RECORDER] Copied current recording for processing: ${segmentFile}`);
+                }
+                catch (copyError) {
+                    console.error(`🔄 [AUTO RECORDER] Error copying recording file: ${copyError}`);
+                    // Try the traditional segment extraction as fallback
+                    await this.extractAudioSegment(recording.outputFile, segmentFile, Math.max(1000, recordingDuration));
+                    console.log('🔄 [AUTO RECORDER] Used fallback extraction method');
+                }
+            }
+            else {
+                console.log(`🔄 [AUTO RECORDER] Recording file doesn't exist yet: ${recording.outputFile}`);
+                return; // Can't process non-existent file
+            }
+            // Check if the extracted file has meaningful content
+            if (fs.existsSync(segmentFile)) {
+                const stats = fs.statSync(segmentFile);
+                console.log(`🔄 [AUTO RECORDER] Extracted file size: ${stats.size} bytes`);
+                if (stats.size >= 1000) { // At least 1KB, indicating some audio content
+                    console.log('🔄 [AUTO RECORDER] Processing current audio for Cmd+S...');
+                    // Transcribe the current audio immediately
+                    const pendingTranscription = await this.transcribeAudioSegment(segmentFile);
+                    if (pendingTranscription && pendingTranscription.trim().length > 0) {
+                        // Add to accumulated transcription immediately
+                        if (recording.accumulatedTranscription.length > 0) {
+                            recording.accumulatedTranscription += ' ';
+                        }
+                        recording.accumulatedTranscription += pendingTranscription;
+                        console.log(`🔄 [AUTO RECORDER] Added current transcription: "${pendingTranscription}"`);
+                        console.log(`🔄 [AUTO RECORDER] Complete transcription now: "${recording.accumulatedTranscription}"`);
+                    }
+                    else {
+                        console.log('🔄 [AUTO RECORDER] No transcription content in current audio');
+                    }
+                }
+                else {
+                    console.log('🔄 [AUTO RECORDER] Current audio file too small, likely no speech yet');
+                }
+                // Clean up the temporary file
+                try {
+                    fs.unlinkSync(segmentFile);
+                }
+                catch (cleanupError) {
+                    console.warn(`🔄 [AUTO RECORDER] Failed to clean up audio file: ${cleanupError}`);
+                }
+            }
+            else {
+                console.log('🔄 [AUTO RECORDER] No audio file created for processing');
+            }
+            console.log('🔄 [AUTO RECORDER] Current audio processing complete');
+        }
+        catch (error) {
+            console.error(`🔄 [AUTO RECORDER] Error processing current audio: ${error}`);
+            // Continue anyway - we'll use whatever transcription is already available
+        }
     }
 }
 exports.AudioService = AudioService;

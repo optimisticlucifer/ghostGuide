@@ -10,6 +10,9 @@ class SessionWindowRenderer {
     this.globalRAGEnabled = false;
     this.localRAGEnabled = false;
     
+    // Auto Recorder State Management
+    this.autoRecorderActive = false;
+    
     this.initializeElements();
     this.setupEventListeners();
     this.setupIpcListeners();
@@ -37,6 +40,7 @@ class SessionWindowRenderer {
     this.debugBtn = document.getElementById('debug');
     this.recordInterviewerBtn = document.getElementById('recordInterviewer');
     this.recordIntervieweeBtn = document.getElementById('recordInterviewee');
+    this.autoRecorderBtn = document.getElementById('autoRecorderMode');
     this.addRAGBtn = document.getElementById('addRAG');
     this.closeBtn = document.getElementById('close');
     
@@ -65,6 +69,7 @@ class SessionWindowRenderer {
     this.debugBtn.addEventListener('click', () => this.debugCode());
     this.recordInterviewerBtn.addEventListener('click', () => this.toggleRecording('system')); // Use system audio for interviewer
     this.recordIntervieweeBtn.addEventListener('click', () => this.toggleRecording('interviewee'));
+    this.autoRecorderBtn.addEventListener('click', () => this.toggleAutoRecorder());
     this.addRAGBtn.addEventListener('click', () => this.openFolderSelection());
     this.closeBtn.addEventListener('click', () => this.closeSession());
     
@@ -224,6 +229,23 @@ class SessionWindowRenderer {
     ipcRenderer.on('local-rag-toggled', (event, result) => {
       this.addMessage('assistant', `📁 Local RAG ${result.enabled ? 'enabled' : 'disabled'}`, { action: 'rag' });
     });
+    
+    // Auto Recorder IPC listeners
+    ipcRenderer.on('auto-recorder-status', (event, status) => {
+      this.updateAutoRecorderStatus(status.active);
+    });
+    
+    ipcRenderer.on('auto-recorder-result', (event, result) => {
+      this.hideLoading();
+      this.addMessage('user', `🔄 Transcription sent: "${result.transcription}"`, { 
+        action: 'auto-recorder',
+        timestamp: result.timestamp 
+      });
+      this.addMessage('assistant', result.aiResponse, { 
+        action: 'auto-recorder',
+        timestamp: result.timestamp 
+      });
+    });
   }
 
   initializeSession() {
@@ -315,6 +337,62 @@ class SessionWindowRenderer {
         this.toggleLocalRAGBtn.classList.add('rag-disabled');
         this.toggleLocalRAGBtn.classList.remove('rag-enabled');
       }
+    }
+  }
+  
+  // ========================================
+  // AUTO RECORDER MODE METHODS
+  // ========================================
+  
+  /**
+   * Toggle auto recorder mode on/off
+   */
+  toggleAutoRecorder() {
+    this.autoRecorderActive = !this.autoRecorderActive;
+    
+    if (this.autoRecorderActive) {
+      this.addMessage('user', '🔄 Starting Auto Recorder Mode...\n\n⏱️ Continuous recording active\n⌨️ Press Cmd+S to send transcription to LLM', { action: 'auto-recorder' });
+      ipcRenderer.send('toggle-auto-recorder', { 
+        sessionId: this.sessionId, 
+        active: true 
+      });
+    } else {
+      this.addMessage('user', '🔄 Stopping Auto Recorder Mode...', { action: 'auto-recorder' });
+      ipcRenderer.send('toggle-auto-recorder', { 
+        sessionId: this.sessionId, 
+        active: false 
+      });
+    }
+    
+    this.updateAutoRecorderButtonState();
+  }
+  
+  /**
+   * Update auto recorder button visual state
+   */
+  updateAutoRecorderStatus(active) {
+    this.autoRecorderActive = active;
+    this.updateAutoRecorderButtonState();
+    
+    if (active) {
+      this.addMessage('assistant', '✅ Auto Recorder Mode Active\n\n🎤 Listening continuously...\n⌨️ Press Cmd+S to send current transcription to LLM', { action: 'auto-recorder' });
+    } else {
+      this.addMessage('assistant', '❌ Auto Recorder Mode Stopped', { action: 'auto-recorder' });
+    }
+  }
+  
+  /**
+   * Update auto recorder button visual state
+   */
+  updateAutoRecorderButtonState() {
+    if (!this.autoRecorderBtn) return;
+    
+    if (this.autoRecorderActive) {
+      this.autoRecorderBtn.classList.add('active');
+      this.autoRecorderBtn.classList.remove('inactive');
+    } else {
+      this.autoRecorderBtn.classList.add('inactive');
+      this.autoRecorderBtn.classList.remove('active');
     }
   }
 

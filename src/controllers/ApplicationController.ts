@@ -18,6 +18,7 @@ import { SessionManager } from '../services/SessionManager';
 import { ScreenSharingDetectionService } from '../services/ScreenSharingDetectionService';
 import { WindowManager } from '../services/WindowManager';
 import { IPCController, IPCServices } from './IPCController';
+import { AudioSource } from '../types';
 
 export interface ApplicationConfig {
   stealthMode?: boolean;
@@ -541,6 +542,11 @@ export class ApplicationController {
       this.hideAllSessionWindows();
     });
 
+    globalShortcut.register('CommandOrControl+S', () => {
+      this.writeLog('⌨️ [APP] Cmd+S pressed - sending auto recorder transcription');
+      this.handleAutoRecorderSend();
+    });
+
     this.writeLog('✅ [APP] Global hotkeys registered');
   }
 
@@ -573,6 +579,184 @@ export class ApplicationController {
         window.focus();
       }
     });
+  }
+
+  /**
+   * Handle Cmd+S pressed - send auto recorder transcription to LLM
+   * Now waits for any pending transcription to complete before processing
+   */
+  private async handleAutoRecorderSend(): Promise<void> {
+    this.writeLog('🔄 [AUTO RECORDER] Cmd+S pressed - processing auto recorder transcription');
+    
+    try {
+      // Check if auto recorder is active
+      if (!this.services.audioService.isAutoRecorderActive()) {
+        this.writeLog('⚠️ [AUTO RECORDER] Auto recorder is not active, ignoring Cmd+S');
+        return;
+      }
+      
+      // Get the auto recorder session details first
+      const autoRecorderStatus = this.services.audioService.getAutoRecorderStatus();
+      const sessionId = autoRecorderStatus.sessionId;
+      
+      if (!sessionId) {
+        this.writeLog('⚠️ [AUTO RECORDER] No active session for auto recorder');
+        return;
+      }
+      
+      // Get session window first to send immediate feedback
+      const sessionWindow = this.sessionWindows.get(sessionId);
+      if (!sessionWindow || sessionWindow.isDestroyed()) {
+        this.writeLog('⚠️ [AUTO RECORDER] Session window not available');
+        return;
+      }
+      
+      // Send immediate feedback to UI that Cmd+S was pressed
+      const timestamp = new Date().toISOString();
+      sessionWindow.webContents.send('chat-response', {
+        sessionId,
+        content: '⌨️ **Cmd+S Pressed** - Processing current transcription... (waiting for any pending segments)',
+        timestamp,
+        metadata: {
+          source: 'auto-recorder-cmd-s',
+          action: 'auto-recorder-processing'
+        }
+      });
+      
+      // 🎯 CRITICAL FIX: Wait for any pending transcription segment to complete
+      this.writeLog('🔄 [AUTO RECORDER] Waiting for pending transcription to complete...');
+      await this.services.audioService.waitForPendingTranscription();
+      this.writeLog('🔄 [AUTO RECORDER] Pending transcription processing complete');
+      
+      // Get current accumulated transcription (now includes any pending segment)
+      let currentTranscription = '';
+      try {
+        currentTranscription = this.services.audioService.getCurrentAutoRecorderTranscription();
+      } catch (error) {
+        this.writeLog(`⚠️ [AUTO RECORDER] Failed to get transcription: ${(error as Error).message}`);
+        currentTranscription = '';
+      }
+      
+      // 🎯 NEW APPROACH: Always show what transcription we have, even if empty
+      // This gives user feedback about what was captured
+      if (!currentTranscription || currentTranscription.trim().length === 0) {
+        this.writeLog('⚠️ [AUTO RECORDER] No transcription available after processing current audio');
+        
+        // Show user that Cmd+S was pressed but no speech was detected
+        sessionWindow.webContents.send('chat-response', {
+          sessionId,
+          content: '⌨️ **Cmd+S Result** - No speech detected in current audio.\n\n💡 Tips:\n• Make sure you\'re speaking clearly\n• Check your audio input device\n• Try speaking for at least 2-3 seconds before pressing Cmd+S',
+          timestamp: new Date().toISOString(),
+          metadata: {
+            source: 'auto-recorder-cmd-s',
+            action: 'auto-recorder-empty'
+          }
+        });
+        return;
+      }
+      
+      this.writeLog(`🔄 [AUTO RECORDER] Sending complete transcription: "${currentTranscription}"`);
+      
+      // Show user the complete transcription that will be sent to AI
+      sessionWindow.webContents.send('chat-response', {
+        sessionId,
+        content: `⌨️ **Cmd+S Complete** - Sending transcription to AI:\n\n"${currentTranscription}"`,
+        timestamp: new Date().toISOString(),
+        metadata: {
+          source: 'auto-recorder-cmd-s',
+          action: 'auto-recorder-complete',
+          transcriptionLength: currentTranscription.length
+        }
+      });
+      
+      // Reset the accumulated transcription context IMMEDIATELY after capturing complete transcription
+      // This ensures new segments can start accumulating without interfering
+      try {
+        this.services.audioService.resetAutoRecorderTranscription();
+        this.writeLog('✅ [AUTO RECORDER] Transcription context reset - ready for new segments');
+      } catch (error) {
+        this.writeLog(`⚠️ [AUTO RECORDER] Failed to reset transcription: ${(error as Error).message}`);
+      }
+      
+      // Send transcription to ChatService for AI analysis
+      if (this.services.chatService.isConfigured()) {
+        try {
+          const aiResponse = await this.services.chatService.processTranscript(
+            sessionId, 
+            currentTranscription, 
+            autoRecorderStatus.source || AudioSource.SYSTEM
+          );
+          
+          // Send AI response to the session window
+          sessionWindow.webContents.send('chat-response', {
+            sessionId,
+            content: `🤖 **AI Analysis:** ${aiResponse}`,
+            timestamp: new Date().toISOString(),
+            metadata: {
+              source: 'auto-recorder-ai-response',
+              action: 'auto-recorder'
+            }
+          });
+          
+          this.writeLog('✅ [AUTO RECORDER] AI response sent successfully');
+          
+        } catch (error) {
+          this.writeLog(`❌ [AUTO RECORDER] ChatService processing failed: ${(error as Error).message}`);
+          
+          // Send error message to UI
+          sessionWindow.webContents.send('chat-response', {
+            sessionId,
+            content: '❌ **AI Analysis Error:** Unable to process transcription. Please check your configuration.',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              source: 'auto-recorder-error',
+              action: 'auto-recorder',
+              error: true
+            }
+          });
+        }
+      } else {
+        this.writeLog('⚠️ [AUTO RECORDER] ChatService not configured, sending fallback message');
+        
+        // Send fallback message when AI is not configured
+        sessionWindow.webContents.send('chat-response', {
+          sessionId,
+          content: '⚙️ **AI Not Configured:** Configure your OpenAI API key in Settings for AI analysis of transcriptions.',
+          timestamp: new Date().toISOString(),
+          metadata: {
+            source: 'auto-recorder-no-ai',
+            action: 'auto-recorder'
+          }
+        });
+      }
+      
+      this.writeLog('✅ [AUTO RECORDER] Cmd+S processing completed');
+      
+    } catch (error) {
+      this.writeLog(`❌ [AUTO RECORDER] Failed to process Cmd+S: ${(error as Error).message}`);
+      
+      // Try to send error to UI if possible
+      try {
+        const autoRecorderStatus = this.services.audioService.getAutoRecorderStatus();
+        if (autoRecorderStatus.sessionId) {
+          const sessionWindow = this.sessionWindows.get(autoRecorderStatus.sessionId);
+          if (sessionWindow && !sessionWindow.isDestroyed()) {
+            sessionWindow.webContents.send('chat-response', {
+              sessionId: autoRecorderStatus.sessionId,
+              content: `❌ **Cmd+S Error:** ${(error as Error).message}`,
+              timestamp: new Date().toISOString(),
+              metadata: {
+                source: 'auto-recorder-error',
+                action: 'auto-recorder',
+                error: true
+              }
+            });
+          }
+        }
+      } catch (uiError) {
+        this.writeLog(`❌ [AUTO RECORDER] Failed to send error to UI: ${(uiError as Error).message}`);
+      }
+    }
   }
 
   private setupApplicationEvents(): void {
