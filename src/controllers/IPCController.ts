@@ -36,6 +36,13 @@ export class IPCController {
   private sessionWindows: Map<string, BrowserWindow>;
   private sessions: Map<string, any>;
   private createSessionWindowCallback?: (sessionId: string, config: any) => BrowserWindow;
+  
+  // Mouse capture state
+  private mouseCaptureSessions: Map<string, {
+    event: Electron.IpcMainEvent;
+    clickCount: number;
+    coordinates: { x: number, y: number }[];
+  }> = new Map();
 
   constructor(
     services: IPCServices,
@@ -399,7 +406,7 @@ export class IPCController {
         const combinedText = accumulatedText 
           ? `${accumulatedText}\n\n--- Additional Capture ---\n\n${newOcrText}` 
           : newOcrText;
-
+        
         console.log(`📷 [MULTI-CAPTURE] Accumulated text length: ${combinedText.length} characters`);
 
         // Initialize session OCR accumulation if not exists
@@ -434,6 +441,163 @@ export class IPCController {
           timestamp: new Date().toISOString()
         });
       }
+    });
+
+    // 🔲 NEW: Area capture handler
+    ipcMain.on('capture-area', async (event, data) => {
+      const { sessionId, coordinates } = data;
+      console.log(`🔲 [AREA-CAPTURE] Area capture requested for session ${sessionId}:`, coordinates);
+
+      try {
+        // Validate coordinates
+        if (!coordinates || !coordinates.x1 || !coordinates.y1 || !coordinates.x2 || !coordinates.y2) {
+          throw new Error('Invalid coordinates provided for area capture');
+        }
+
+        console.log(`🔲 [AREA-CAPTURE] Capturing area: (${coordinates.x1}, ${coordinates.y1}) to (${coordinates.x2}, ${coordinates.y2})`);
+        
+        // Use CaptureService to capture the defined area
+        const areaScreenshot = await this.services.captureService.captureArea(coordinates);
+        console.log(`🔲 [AREA-CAPTURE] Area capture completed, size: ${areaScreenshot.length} bytes`);
+
+        // Extract text from the captured area using OCR
+        console.log(`🔲 [AREA-CAPTURE] Starting OCR text extraction...`);
+        const ocrText = await this.services.ocrService.extractText(areaScreenshot);
+        console.log(`🔲 [AREA-CAPTURE] OCR extraction completed: "${ocrText.substring(0, 100)}..."`);
+
+        // Send the extracted OCR text to chat first
+        const sessionWindow = this.sessionWindows.get(sessionId);
+        if (sessionWindow && !sessionWindow.isDestroyed()) {
+          sessionWindow.webContents.send('chat-response', {
+            sessionId,
+            content: `📸 **Area Captured - OCR Text Extracted:**\n\n"${ocrText}"`,
+            timestamp: new Date().toISOString(),
+            metadata: {
+              source: 'area-capture-ocr',
+              action: 'area-capture'
+            }
+          });
+        }
+
+        // Get AI analysis of the captured area text
+        let analysis = '';
+        const session = this.sessions.get(sessionId);
+        if (this.services.openai && session && ocrText.trim()) {
+          console.log(`🔲 [AREA-CAPTURE] Generating AI analysis for captured area text...`);
+          
+          // Create the prompt that will be sent to LLM
+          const llmPrompt = `Please analyze this text I captured from a specific area of my screen during my ${session.profession} ${session.interviewType} interview preparation: "${ocrText}"`;
+          
+          // Display the prompt being sent to LLM in chat
+          if (sessionWindow && !sessionWindow.isDestroyed()) {
+            sessionWindow.webContents.send('chat-response', {
+              sessionId,
+              content: `🤖 **Sending to LLM for Analysis:**\n\n"${llmPrompt}"`,
+              timestamp: new Date().toISOString(),
+              metadata: {
+                source: 'area-capture-prompt',
+                action: 'area-capture'
+              }
+            });
+          }
+          
+          try {
+            const aiResponse = await this.services.chatService.sendMessage(
+              sessionId,
+              llmPrompt
+            );
+            analysis = aiResponse.response;
+          } catch (aiError) {
+            console.error(`🔲 [AREA-CAPTURE] AI analysis failed:`, aiError);
+            analysis = 'Unable to generate analysis for the captured area.';
+          }
+        } else {
+          analysis = ocrText.trim() ? 
+            'Configure your OpenAI API key in Settings for AI-powered analysis of captured areas.' :
+            'No text was detected in the captured area.';
+        }
+
+        // Send successful result to session window (reuse existing sessionWindow reference)
+        if (sessionWindow && !sessionWindow.isDestroyed()) {
+          console.log(`✅ [AREA-CAPTURE] Sending successful area capture result to session window`);
+          sessionWindow.webContents.send('area-captured', {
+            sessionId,
+            coordinates,
+            text: ocrText,
+            analysis,
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          console.error(`❌ [AREA-CAPTURE] Session window not found for session: ${sessionId}`);
+          event.reply('area-captured', {
+            sessionId,
+            coordinates,
+            text: ocrText,
+            analysis,
+            timestamp: new Date().toISOString()
+          });
+        }
+
+      } catch (error) {
+        console.error(`❌ [AREA-CAPTURE] Area capture failed:`, error);
+        
+        // Send error to session window
+        const sessionWindow = this.sessionWindows.get(sessionId);
+        if (sessionWindow && !sessionWindow.isDestroyed()) {
+          sessionWindow.webContents.send('area-capture-error', {
+            sessionId,
+            error: (error as Error).message,
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          event.reply('area-capture-error', {
+            sessionId,
+            error: (error as Error).message,
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
+    });
+
+    // 🔲 NEW: Coordinate capture handler (for area selection)
+    ipcMain.on('start-coordinate-capture', async (event, data) => {
+      const { sessionId } = data;
+      console.log(`🔲 [COORDINATE] *** IPC MESSAGE RECEIVED *** Starting coordinate capture for session: ${sessionId}`);
+      console.log(`🔲 [COORDINATE] Event object:`, typeof event);
+      console.log(`🔲 [COORDINATE] Data object:`, data);
+      
+      try {
+        // Start listening for global mouse clicks
+        console.log(`🔲 [COORDINATE] Calling startGlobalMouseCapture...`);
+        this.startGlobalMouseCapture(sessionId, event);
+        
+        console.log(`🔲 [COORDINATE] Global mouse capture setup completed for session: ${sessionId}`);
+        event.reply('coordinate-capture-ready', { sessionId });
+        console.log(`🔲 [COORDINATE] Sent coordinate-capture-ready reply`);
+        
+      } catch (error) {
+        console.error(`❌ [COORDINATE] Coordinate capture setup failed:`, error);
+        event.reply('coordinate-capture-error', {
+          sessionId,
+          error: error.message
+        });
+      }
+    });
+    
+    // 🔲 NEW: Stop coordinate capture handler
+    ipcMain.on('stop-coordinate-capture', async (event, data) => {
+      const { sessionId } = data;
+      console.log(`🔲 [COORDINATE] Stopping coordinate capture for session: ${sessionId}`);
+      this.stopGlobalMouseCapture(sessionId);
+    });
+    
+    // 🔲 NEW: Overlay click handler (from injected JavaScript in overlay window)
+    ipcMain.on('overlay-click', async (event, data) => {
+      const { sessionId, x, y, clickCount } = data;
+      console.log(`🖱️ [OVERLAY-IPC] Received overlay click: (${x}, ${y}) for session: ${sessionId}`);
+      
+      // Handle the mouse click through our existing handler
+      this.handleMouseClick(sessionId, x, y);
     });
 
     // 🎯 NEW: Analyze accumulated text handler
@@ -1464,6 +1628,320 @@ export class IPCController {
     } catch (error) {
       console.error('Error counting supported files:', error);
       return 0;
+    }
+  }
+  
+  /**
+   * Start capturing global mouse clicks for coordinate selection using a simplified approach
+   */
+  private startGlobalMouseCapture(sessionId: string, event: Electron.IpcMainEvent): void {
+    console.log(`🖱️ [MOUSE-CAPTURE] Starting global mouse capture for session: ${sessionId}`);
+    
+    // Initialize capture state for this session
+    this.mouseCaptureSessions.set(sessionId, {
+      event,
+      clickCount: 0,
+      coordinates: []
+    });
+    
+    // Create a simple overlay window approach for mouse capture
+    this.createMouseCaptureOverlay(sessionId);
+    
+    // Set a timeout to auto-stop capture after 30 seconds
+    setTimeout(() => {
+      if (this.mouseCaptureSessions.has(sessionId)) {
+        console.log(`⏰ [MOUSE-CAPTURE] Auto-stopping mouse capture for session: ${sessionId} (timeout)`);
+        this.stopGlobalMouseCapture(sessionId);
+        
+        // Send timeout message to renderer
+        const captureSession = this.mouseCaptureSessions.get(sessionId);
+        if (captureSession) {
+          captureSession.event.reply('coordinate-capture-timeout', {
+            sessionId,
+            message: 'Mouse capture timed out after 30 seconds'
+          });
+        }
+      }
+    }, 30000);
+  }
+  
+  /**
+   * Create a transparent overlay for mouse capture
+   */
+  private createMouseCaptureOverlay(sessionId: string): void {
+    console.log(`🖱️ [OVERLAY] Creating mouse capture overlay for session: ${sessionId}`);
+    
+    const { BrowserWindow, screen } = require('electron');
+    const primaryDisplay = screen.getPrimaryDisplay();
+    
+    // Get both full screen size and work area for debugging
+    const fullScreenSize = primaryDisplay.size;
+    const workAreaSize = primaryDisplay.workAreaSize;
+    const workAreaBounds = primaryDisplay.workArea;
+    
+    console.log(`🖱️ [OVERLAY-DEBUG] Full screen size: ${fullScreenSize.width}x${fullScreenSize.height}`);
+    console.log(`🖱️ [OVERLAY-DEBUG] Work area size: ${workAreaSize.width}x${workAreaSize.height}`);
+    console.log(`🖱️ [OVERLAY-DEBUG] Work area bounds:`, workAreaBounds);
+    
+    // Calculate the offset from work area to full screen (menu bar height)
+    const menuBarHeight = workAreaBounds.y;
+    console.log(`🖱️ [OVERLAY-DEBUG] Menu bar height offset: ${menuBarHeight}px`);
+    
+    // Create a fullscreen transparent window to capture clicks
+    const overlay = new BrowserWindow({
+      width: fullScreenSize.width,
+      height: fullScreenSize.height,
+      x: 0,
+      y: 0,
+      transparent: true,
+      frame: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      closable: false,
+      focusable: true,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+        enableRemoteModule: true
+      }
+    });
+    
+    // Load minimal HTML for the overlay
+    overlay.loadURL('data:text/html,<html><body style="background:transparent;cursor:default;"></body></html>');
+    
+    // Store overlay reference
+    const captureSession = this.mouseCaptureSessions.get(sessionId);
+    if (captureSession) {
+      (captureSession as any).overlay = overlay;
+    }
+    
+    // Listen for mouse events on the overlay window using multiple approaches
+    console.log(`🖱️ [OVERLAY] Setting up mouse event listeners...`);
+    
+    // Approach 1: Use webContents mouse events
+    overlay.webContents.on('dom-ready', () => {
+      console.log(`🖱️ [OVERLAY] DOM ready, injecting click handler...`);
+      
+      // Inject a script to capture clicks
+      overlay.webContents.executeJavaScript(`
+        document.addEventListener('click', (event) => {
+          console.log('Overlay clicked at:', event.clientX, event.clientY);
+          // Send click coordinates to main process
+          window.postMessage({
+            type: 'overlay-click',
+            x: event.screenX,
+            y: event.screenY
+          });
+        });
+        
+        // Make sure the body can receive clicks
+        document.body.style.pointerEvents = 'auto';
+        document.body.style.cursor = 'default';
+        
+        console.log('Overlay click handler injected');
+      `);
+    });
+    
+    // Listen for messages from the injected script
+    overlay.webContents.on('console-message', (event, level, message) => {
+      console.log(`🖱️ [OVERLAY-CONSOLE]`, message);
+    });
+    
+    // Alternative approach: Direct mouse position polling
+    const mousePoller = setInterval(() => {
+      if (overlay.isDestroyed()) {
+        clearInterval(mousePoller);
+        return;
+      }
+      
+      // Check if overlay window is focused and get mouse position
+      if (overlay.isFocused()) {
+        const mousePos = screen.getCursorScreenPoint();
+        const overlayBounds = overlay.getBounds();
+        
+        // Check if mouse is within overlay bounds
+        if (mousePos.x >= overlayBounds.x && 
+            mousePos.x < overlayBounds.x + overlayBounds.width &&
+            mousePos.y >= overlayBounds.y && 
+            mousePos.y < overlayBounds.y + overlayBounds.height) {
+          // Mouse is over overlay - wait for click
+        }
+      }
+    }, 100);
+    
+    // Store poller reference for cleanup
+    (overlay as any).mousePoller = mousePoller;
+    
+    // Approach 3: Listen for native mouse events
+    overlay.webContents.on('before-input-event', (event, input) => {
+      console.log(`🖱️ [OVERLAY] Input event:`, input.type, input.key);
+      if (input.type === 'mouseDown' && input.key === 'Left') {
+        const mousePos = screen.getCursorScreenPoint();
+        console.log(`🖱️ [OVERLAY-CLICK] Mouse click at (${mousePos.x}, ${mousePos.y}) for session: ${sessionId}`);
+        this.handleMouseClick(sessionId, mousePos.x, mousePos.y);
+      }
+    });
+    
+    // Approach 4: Use window click event
+    overlay.on('focus', () => {
+      console.log(`🖱️ [OVERLAY] Overlay gained focus`);
+    });
+    
+    overlay.webContents.on('did-finish-load', () => {
+      console.log(`🖱️ [OVERLAY] Overlay finished loading`);
+      // Try to capture mouse events via JavaScript with coordinate correction
+      overlay.webContents.executeJavaScript(`
+        let clickCount = 0;
+        const menuBarOffset = ${menuBarHeight}; // Menu bar height offset from Electron
+        
+        console.log('Overlay loaded with menu bar offset:', menuBarOffset);
+        
+        document.addEventListener('mousedown', (e) => {
+          // Calculate corrected coordinates
+          // e.clientX, e.clientY are relative to the overlay window
+          // Since overlay starts at (0,0) of full screen, we can use them directly
+          const correctedX = e.clientX;
+          const correctedY = e.clientY;
+          
+          console.log('Raw coordinates - clientX:', e.clientX, 'clientY:', e.clientY);
+          console.log('Screen coordinates - screenX:', e.screenX, 'screenY:', e.screenY);
+          console.log('Corrected coordinates:', correctedX, correctedY);
+          
+          clickCount++;
+          
+          // Use IPC to send click to main process with corrected coordinates
+          if (window.require) {
+            const { ipcRenderer } = window.require('electron');
+            ipcRenderer.send('overlay-click', {
+              sessionId: '${sessionId}',
+              x: correctedX,
+              y: correctedY,
+              clickCount: clickCount
+            });
+          }
+        });
+        
+        console.log('Mouse event listener added to overlay with coordinate correction');
+      `);
+    });
+    
+    // Also listen for click events directly
+    overlay.on('closed', () => {
+      console.log(`🖱️ [OVERLAY] Overlay closed for session: ${sessionId}`);
+      this.stopGlobalMouseCapture(sessionId);
+    });
+    
+    console.log(`🖱️ [OVERLAY] Overlay created and listening for clicks`);
+  }
+  
+  /**
+   * Handle a mouse click during coordinate capture
+   */
+  private handleMouseClick(sessionId: string, x: number, y: number): void {
+    const captureSession = this.mouseCaptureSessions.get(sessionId);
+    if (!captureSession) {
+      console.log(`🖱️ [CLICK] No capture session found for: ${sessionId}`);
+      return;
+    }
+    
+    captureSession.clickCount++;
+    captureSession.coordinates.push({ x, y });
+    
+    console.log(`🖱️ [CLICK-CAPTURED] Point ${captureSession.clickCount}: (${x}, ${y}) for session: ${sessionId}`);
+    
+    // Send coordinate back to renderer
+    const sessionWindow = this.sessionWindows.get(sessionId);
+    if (sessionWindow && !sessionWindow.isDestroyed()) {
+      sessionWindow.webContents.send('coordinate-captured', {
+        sessionId,
+        x,
+        y,
+        clickCount: captureSession.clickCount
+      });
+    }
+    
+    // If we've captured 2 points, immediately stop capturing and start area capture
+    if (captureSession.clickCount >= 2) {
+      console.log(`🖱️ [COMPLETE] Captured both coordinates for session: ${sessionId}`);
+      
+      // Immediately stop mouse capture before starting area capture
+      this.stopGlobalMouseCapture(sessionId);
+      
+      // Trigger area capture with the collected coordinates
+      const coords = captureSession.coordinates;
+      if (coords.length >= 2) {
+        console.log(`🔲 [AREA-CAPTURE] Starting area capture with coordinates: (${coords[0].x}, ${coords[0].y}) to (${coords[1].x}, ${coords[1].y})`);
+        
+        // Trigger area capture via the session window
+        if (sessionWindow && !sessionWindow.isDestroyed()) {
+          sessionWindow.webContents.send('trigger-area-capture', {
+            sessionId,
+            coordinates: {
+              x1: coords[0].x,
+              y1: coords[0].y,
+              x2: coords[1].x,
+              y2: coords[1].y
+            }
+          });
+        }
+      }
+    }
+  }
+  
+  /**
+   * Stop capturing global mouse clicks for coordinate selection
+   */
+  private stopGlobalMouseCapture(sessionId: string): void {
+    console.log(`🖱️ [MOUSE-CAPTURE] Stopping global mouse capture for session: ${sessionId}`);
+    
+    const captureSession = this.mouseCaptureSessions.get(sessionId);
+    if (captureSession) {
+      // Close the overlay window if it exists
+      const overlay = (captureSession as any).overlay;
+      if (overlay && !overlay.isDestroyed()) {
+        console.log(`🖱️ [OVERLAY] Forcefully destroying overlay window for session: ${sessionId}`);
+        
+        // Clear any polling intervals
+        const mousePoller = (overlay as any).mousePoller;
+        if (mousePoller) {
+          clearInterval(mousePoller);
+          console.log(`🖱️ [OVERLAY] Mouse poller cleared for session: ${sessionId}`);
+        }
+        
+        // Remove all event listeners before closing
+        try {
+          overlay.webContents.removeAllListeners();
+          overlay.removeAllListeners();
+          console.log(`🖱️ [OVERLAY] Event listeners removed for session: ${sessionId}`);
+        } catch (error) {
+          console.error(`⚠️ [OVERLAY] Error removing listeners:`, error);
+        }
+        
+        // Force close and destroy the overlay window
+        try {
+          overlay.destroy();
+          console.log(`🖱️ [OVERLAY] Overlay window forcefully destroyed for session: ${sessionId}`);
+        } catch (error) {
+          console.error(`⚠️ [OVERLAY] Error destroying overlay:`, error);
+          // Try alternative close method
+          try {
+            overlay.close();
+            console.log(`🖱️ [OVERLAY] Overlay window closed (fallback) for session: ${sessionId}`);
+          } catch (closeError) {
+            console.error(`⚠️ [OVERLAY] Failed to close overlay:`, closeError);
+          }
+        }
+      }
+      
+      // Remove the capture session
+      this.mouseCaptureSessions.delete(sessionId);
+      console.log(`🖱️ [CLEANUP] Mouse capture session cleaned up for: ${sessionId}`);
+    } else {
+      console.log(`⚠️ [MOUSE-CAPTURE] No capture session found to stop for: ${sessionId}`);
     }
   }
 }

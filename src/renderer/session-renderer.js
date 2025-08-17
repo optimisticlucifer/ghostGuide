@@ -13,6 +13,11 @@ class SessionWindowRenderer {
     // Auto Recorder State Management
     this.autoRecorderActive = false;
     
+    // Area Capture State Management
+    this.isCapturingArea = false;
+    this.areaPoints = [];
+    this.originalCursor = null;
+    
     this.initializeElements();
     this.setupEventListeners();
     this.setupIpcListeners();
@@ -37,6 +42,7 @@ class SessionWindowRenderer {
   initializeElements() {
     // Toolbar buttons
     this.screenshotBtn = document.getElementById('screenshot');
+    this.captureAreaBtn = document.getElementById('captureArea');
     this.debugBtn = document.getElementById('debug');
     this.recordInterviewerBtn = document.getElementById('recordInterviewer');
     this.recordIntervieweeBtn = document.getElementById('recordInterviewee');
@@ -66,6 +72,7 @@ class SessionWindowRenderer {
   setupEventListeners() {
     // Toolbar button events
     this.screenshotBtn.addEventListener('click', () => this.captureScreenshot());
+    this.captureAreaBtn.addEventListener('click', () => this.startAreaCapture());
     this.debugBtn.addEventListener('click', () => this.debugCode());
     this.recordInterviewerBtn.addEventListener('click', () => this.toggleRecording('system')); // Use system audio for interviewer
     this.recordIntervieweeBtn.addEventListener('click', () => this.toggleRecording('interviewee'));
@@ -245,6 +252,53 @@ class SessionWindowRenderer {
         action: 'auto-recorder',
         timestamp: result.timestamp 
       });
+    });
+    
+    // Area Capture IPC listeners
+    ipcRenderer.on('area-captured', (event, result) => {
+      this.hideLoading();
+      this.addMessage('assistant', `🔲 **Area captured successfully!**\n\n📊 **Area:** (${result.coordinates.x1}, ${result.coordinates.y1}) to (${result.coordinates.x2}, ${result.coordinates.y2})\n📏 **Size:** ${Math.abs(result.coordinates.x2 - result.coordinates.x1)} × ${Math.abs(result.coordinates.y2 - result.coordinates.y1)} pixels\n\n**Extracted text:** ${result.text}`, {
+        action: 'area-capture',
+        timestamp: result.timestamp
+      });
+      
+      if (result.analysis) {
+        this.addMessage('assistant', result.analysis, { 
+          action: 'area-capture',
+          timestamp: result.timestamp
+        });
+      }
+    });
+    
+    ipcRenderer.on('area-capture-error', (event, error) => {
+      this.hideLoading();
+      this.endAreaCapture(); // Clean up area capture state
+      this.addMessage('assistant', `❌ **Area Capture Error:** ${error.error}`, { 
+        action: 'area-capture',
+        error: true
+      });
+    });
+    
+    // 🔲 Coordinate capture IPC listener
+    ipcRenderer.on('coordinate-captured', (event, data) => {
+      console.log('🔲 [UI] Received coordinate-captured event:', data);
+      this.handleCoordinateCaptured(data);
+    });
+    
+    // 🔲 Area capture trigger IPC listener
+    ipcRenderer.on('trigger-area-capture', (event, data) => {
+      console.log('🔲 [UI] Received trigger-area-capture event:', data);
+      // Only process if we're currently in area capture mode
+      if (this.isCapturingArea) {
+        console.log('🔲 [UI] Processing trigger-area-capture (area capture mode is active)');
+        // Directly process area capture with the provided coordinates
+        ipcRenderer.send('capture-area', {
+          sessionId: data.sessionId,
+          coordinates: data.coordinates
+        });
+      } else {
+        console.log('🔲 [UI] Ignoring trigger-area-capture (not in area capture mode)');
+      }
     });
   }
 
@@ -635,6 +689,166 @@ class SessionWindowRenderer {
       actionType,
       accumulatedText
     });
+  }
+  
+  // ========================================
+  // AREA CAPTURE METHODS
+  // ========================================
+  
+  /**
+   * Start area capture mode - wait for two mouse clicks to define rectangular area
+   */
+  startAreaCapture() {
+    if (this.isCapturingArea) {
+      console.log('🔲 [AREA] Area capture already in progress');
+      return;
+    }
+    
+    this.isCapturingArea = true;
+    this.areaPoints = [];
+    
+    // Store original cursor to restore later
+    this.originalCursor = document.body.style.cursor;
+    
+    // Keep cursor as default (arrow) as requested
+    // document.body.style.cursor = 'crosshair'; // Don't change cursor
+    
+    this.addMessage('user', '🔲 **Area Capture Mode**\n\n📍 **Step 1:** Click the first corner of the area you want to capture\n📍 **Step 2:** Click the second corner to complete the selection\n\n⚠️ Make sure to click outside this window to capture screen areas', {
+      action: 'area-capture'
+    });
+    
+    // Set up global click listeners for coordinate capture
+    this.setupGlobalClickListeners();
+    
+    console.log('🔲 [AREA] Area capture mode started, waiting for coordinates...');
+  }
+  
+  /**
+   * Setup global mouse click listeners for coordinate capture
+   */
+  setupGlobalClickListeners() {
+    console.log('🔲 [UI] Setting up global mouse click capture...');
+    
+    this.addMessage('assistant', '🔲 **Mouse Click Capture Mode**\n\n🖱️ **Instructions:**\n1. Click anywhere on your screen for the **first corner**\n2. Click again for the **second corner**\n3. The rectangular area will be captured and analyzed\n\n⚠️ **Note:** Click outside this window to capture screen areas', {
+      action: 'area-capture'
+    });
+    
+    // Request the main process to start capturing mouse coordinates
+    ipcRenderer.send('start-coordinate-capture', { sessionId: this.sessionId });
+    
+    // Set up listeners for coordinate capture events
+    this.setupCoordinateCaptureListeners();
+  }
+  
+  /**
+   * Setup all coordinate capture event listeners
+   */
+  setupCoordinateCaptureListeners() {
+    // Listen for coordinate capture ready confirmation
+    ipcRenderer.once('coordinate-capture-ready', (event, data) => {
+      console.log('🔲 [UI] Coordinate capture system is ready');
+      this.addMessage('assistant', '✅ **Mouse capture activated!**\n\n🖱️ Click anywhere on your screen to select the **first corner** of the area to capture.', {
+        action: 'area-capture'
+      });
+    });
+    
+    // Listen for coordinate capture timeout
+    ipcRenderer.once('coordinate-capture-timeout', (event, data) => {
+      console.log('🔲 [UI] Coordinate capture timed out');
+      this.endAreaCapture();
+      this.addMessage('assistant', '⏰ Area capture timed out after 30 seconds. Please try again.', { 
+        action: 'area-capture',
+        error: true
+      });
+    });
+    
+    // Listen for coordinate capture errors
+    ipcRenderer.once('coordinate-capture-error', (event, data) => {
+      console.log('🔲 [UI] Coordinate capture error:', data.error);
+      this.endAreaCapture();
+      this.addMessage('assistant', `❌ Coordinate capture error: ${data.error}`, { 
+        action: 'area-capture',
+        error: true
+      });
+    });
+  }
+  
+  /**
+   * Handle captured coordinates from main process
+   */
+  handleCoordinateCaptured(data) {
+    if (!this.isCapturingArea) return;
+    
+    const { x, y, clickCount } = data;
+    
+    this.areaPoints.push({ x, y });
+    
+    console.log(`🔲 [AREA] Captured point ${this.areaPoints.length}: (${x}, ${y})`);
+    
+    if (this.areaPoints.length === 1) {
+      // First point captured, wait for second
+      this.addMessage('assistant', `✅ **First point captured:** (${x}, ${y})\n\n📍 Now click the second corner to complete the area selection`, {
+        action: 'area-capture'
+      });
+      
+    } else if (this.areaPoints.length === 2) {
+      // Both points captured, proceed with area capture
+      const firstPoint = this.areaPoints[0];
+      const secondPoint = this.areaPoints[1];
+      
+      this.addMessage('assistant', `✅ **Second point captured:** (${x}, ${y})\n\n🔲 **Area defined:** (${firstPoint.x}, ${firstPoint.y}) to (${secondPoint.x}, ${secondPoint.y})\n\n📸 Capturing selected area...`, {
+        action: 'area-capture'
+      });
+      
+      // Process the area capture
+      this.processAreaCapture(firstPoint, secondPoint);
+    }
+  }
+  
+  /**
+   * Process the area capture with the two selected points
+   */
+  processAreaCapture(point1, point2) {
+    this.showLoading();
+    
+    // Create coordinates object for the captured area
+    const coordinates = {
+      x1: point1.x,
+      y1: point1.y,
+      x2: point2.x,
+      y2: point2.y
+    };
+    
+    console.log('🔲 [AREA] Processing area capture with coordinates:', coordinates);
+    
+    // Send area capture request to main process
+    ipcRenderer.send('capture-area', {
+      sessionId: this.sessionId,
+      coordinates
+    });
+    
+    // Clean up area capture state
+    this.endAreaCapture();
+  }
+  
+  /**
+   * End area capture mode and clean up
+   */
+  endAreaCapture() {
+    this.isCapturingArea = false;
+    this.areaPoints = [];
+    
+    // Restore original cursor
+    if (this.originalCursor !== null) {
+      document.body.style.cursor = this.originalCursor;
+      this.originalCursor = null;
+    }
+    
+    // Don't remove all listeners - this breaks subsequent area captures!
+    // The main 'coordinate-captured' listener should remain active for future captures
+    // Only remove specific one-time listeners if they exist
+    
+    console.log('🔲 [AREA] Area capture mode ended (listeners preserved for next capture)');
   }
 }
 

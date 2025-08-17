@@ -309,11 +309,115 @@
         .capture-action-btn:nth-child(4):hover:not(:disabled) {
             background: #218838;
         }
+        
+        /* 🔲 Coordinate Input Form Styles */
+        .coordinate-input-form {
+            background: #f8f9fa !important;
+            border: 2px solid #667eea !important;
+            border-radius: 10px !important;
+            padding: 20px !important;
+            margin: 10px 0 !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
+        }
+        
+        .coordinate-form h4 {
+            margin-top: 0;
+            color: #667eea;
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        
+        .coordinate-form p {
+            margin: 5px 0 15px 0;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .coordinate-form .input-group {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+            gap: 10px;
+        }
+        
+        .coordinate-form .input-group label {
+            font-weight: 500;
+            color: #333;
+            width: 80px;
+            font-size: 13px;
+        }
+        
+        .coordinate-form .input-group input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            min-width: 100px;
+            transition: border-color 0.2s;
+        }
+        
+        .coordinate-form .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+        
+        .coordinate-form .form-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            justify-content: center;
+        }
+        
+        .coordinate-form .form-buttons button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-width: 120px;
+        }
+        
+        .coordinate-form .form-buttons button.primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .coordinate-form .form-buttons button.primary:hover {
+            background: #5a6fd8;
+            transform: translateY(-1px);
+        }
+        
+        .coordinate-form .form-buttons button.secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .coordinate-form .form-buttons button.secondary:hover {
+            background: #5a6268;
+            transform: translateY(-1px);
+        }
+        
+        .coordinate-form .help-text {
+            margin-top: 15px;
+            font-size: 12px;
+            color: #666;
+            font-style: italic;
+            text-align: center;
+            padding: 8px;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
     <div class="toolbar">
         <button id="screenshot" title="Capture Screenshot">📷</button>
+        <button id="captureArea" title="Capture Area (Click two points)">🔲 Area</button>
         <button id="debug" title="Debug Code">🐛</button>
         <button id="recordInterviewer" title="Record Interviewer (System Audio)">🎤</button>
         <button id="recordInterviewee" title="Record Interviewee (Microphone)">🎙️</button>

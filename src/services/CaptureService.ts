@@ -4,7 +4,15 @@ import sharp from 'sharp';
 export enum CaptureType {
   FULL = 'full',
   LEFT_HALF = 'left_half',
-  RIGHT_HALF = 'right_half'
+  RIGHT_HALF = 'right_half',
+  AREA = 'area'
+}
+
+export interface AreaCoordinates {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
 }
 
 export class CaptureService {
@@ -39,6 +47,9 @@ export class CaptureService {
                 case CaptureType.RIGHT_HALF:
                     console.log(`📷 [CAPTURE] Processing right half capture...`);
                     return await this.cropRightHalf(fullScreenBuffer);
+                    
+                case CaptureType.AREA:
+                    throw new Error('Area capture requires coordinates. Use captureArea() method instead.');
                     
                 default:
                     throw new Error(`Unsupported capture type: ${captureType}`);
@@ -130,6 +141,100 @@ export class CaptureService {
         } catch (error) {
             console.error(`❌ [CAPTURE] Right half crop failed: ${(error as Error).message}`);
             throw new Error(`Right half crop failed: ${(error as Error).message}`);
+        }
+    }
+    
+    /**
+     * Capture a specific rectangular area defined by two coordinate points
+     */
+    async captureArea(coordinates: AreaCoordinates): Promise<Buffer> {
+        console.log(`📷 [CAPTURE] Starting area capture with coordinates:`, coordinates);
+        
+        try {
+            // First, capture the full screen
+            const fullScreenBuffer = await this.captureFullScreen();
+            
+            // Get screen capture dimensions to detect scale factor
+            const image = sharp(fullScreenBuffer);
+            const { width: screenWidth, height: screenHeight } = await image.metadata();
+            
+            if (!screenWidth || !screenHeight) {
+                throw new Error('Unable to get screen dimensions');
+            }
+            
+            // Import screen module to get logical screen size
+            const { screen } = require('electron');
+            const primaryDisplay = screen.getPrimaryDisplay();
+            const logicalBounds = primaryDisplay.bounds;
+            const workArea = primaryDisplay.workArea;
+            const scaleFactor = primaryDisplay.scaleFactor;
+            
+            const logicalWidth = logicalBounds.width;
+            const logicalHeight = logicalBounds.height;
+            
+            // Calculate scale factor
+            const scaleFactorX = screenWidth / logicalWidth;
+            const scaleFactorY = screenHeight / logicalHeight;
+            
+            console.log(`📷 [CAPTURE] Screen scale factors: X=${scaleFactorX}, Y=${scaleFactorY}`);
+            
+            // Calculate the rectangular area from coordinates (in logical pixels)
+            const logicalLeft = Math.min(coordinates.x1, coordinates.x2);
+            const logicalTop = Math.min(coordinates.y1, coordinates.y2);
+            const logicalRight = Math.max(coordinates.x1, coordinates.x2);
+            const logicalBottom = Math.max(coordinates.y1, coordinates.y2);
+            
+            // Scale coordinates to physical pixels
+            const left = Math.round(logicalLeft * scaleFactorX);
+            const top = Math.round(logicalTop * scaleFactorY);
+            const right = Math.round(logicalRight * scaleFactorX);
+            const bottom = Math.round(logicalBottom * scaleFactorY);
+            
+            // IMPORTANT: The overlay coordinates are relative to the screen content area (below menu bar),
+            // but the screenshot capture includes the full screen including the menu bar.
+            // We need to adjust for the menu bar offset.
+            const menuBarOffset = workArea.y; // This is typically 25px on macOS
+            
+            // Adjust the Y coordinates to account for menu bar
+            const adjustedTop = top + (menuBarOffset * scaleFactorY);
+            const adjustedBottom = bottom + (menuBarOffset * scaleFactorY);
+            
+            const width = right - left;
+            const height = adjustedBottom - adjustedTop;
+            
+            console.log(`📷 [CAPTURE] Calculated area: left=${left}, top=${adjustedTop}, width=${width}, height=${height}`);
+            
+            if (width <= 0 || height <= 0) {
+                throw new Error('Invalid area dimensions: width and height must be positive');
+            }
+            
+            // Validate adjusted coordinates are within screen bounds
+            if (left < 0 || adjustedTop < 0 || right > screenWidth || adjustedBottom > screenHeight) {
+                console.warn(`📷 [CAPTURE] Coordinates may be outside screen bounds. Screen: ${screenWidth}x${screenHeight}`);
+            }
+            
+            // Calculate actual extraction parameters using adjusted coordinates
+            const extractLeft = Math.max(0, left);
+            const extractTop = Math.max(0, adjustedTop);
+            const extractWidth = Math.min(width, screenWidth - extractLeft);
+            const extractHeight = Math.min(height, screenHeight - extractTop);
+            
+            const croppedArea = await image
+                .extract({ 
+                    left: extractLeft,
+                    top: extractTop,
+                    width: extractWidth,
+                    height: extractHeight
+                })
+                .png()
+                .toBuffer();
+            
+            console.log(`📷 [CAPTURE] Area captured successfully, size: ${croppedArea.length} bytes`);
+            return croppedArea;
+            
+        } catch (error) {
+            console.error(`❌ [CAPTURE] Area capture failed: ${(error as Error).message}`);
+            throw new Error(`Area capture failed: ${(error as Error).message}`);
         }
     }
 }
