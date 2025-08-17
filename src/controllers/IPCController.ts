@@ -454,15 +454,52 @@ export class IPCController {
             console.log(`🤖 [ANALYZE-ACCUMULATED] Generated analysis for session ${sessionId}`);
           } catch (error) {
             console.error(`🤖 [ANALYZE-ACCUMULATED] ChatService processing failed:`, error);
-            aiAnalysis = actionType === 'screenshot' 
-              ? this.generateFallbackAnalysis(accumulatedText, session.profession, session.interviewType)
-              : this.generateFallbackDebugAnalysis(accumulatedText, session.profession);
+            
+            // Try direct OpenAI analysis if ChatService fails but OpenAI is available
+            if (this.services.openai && actionType === 'screenshot') {
+              console.log(`🤖 [ANALYZE-ACCUMULATED] Falling back to direct OpenAI screenshot analysis`);
+              try {
+                aiAnalysis = await this.generateOpenAIScreenshotAnalysis(
+                  accumulatedText, 
+                  session.profession, 
+                  session.interviewType
+                );
+                console.log(`🤖 [ANALYZE-ACCUMULATED] Direct OpenAI analysis successful`);
+              } catch (openaiError) {
+                console.error(`🤖 [ANALYZE-ACCUMULATED] Direct OpenAI analysis also failed:`, openaiError);
+                aiAnalysis = this.generateFallbackAnalysis(accumulatedText, session.profession, session.interviewType);
+              }
+            } else {
+              // Use fallback for debug or when OpenAI not available
+              aiAnalysis = actionType === 'screenshot' 
+                ? this.generateFallbackAnalysis(accumulatedText, session.profession, session.interviewType)
+                : this.generateFallbackDebugAnalysis(accumulatedText, session.profession);
+            }
           }
         } else {
-          console.log(`⚠️ [ANALYZE-ACCUMULATED] No ChatService configured, using fallback analysis`);
-          aiAnalysis = actionType === 'screenshot'
-            ? this.generateFallbackAnalysis(accumulatedText, session?.profession || 'software-engineer', session?.interviewType || 'technical')
-            : this.generateFallbackDebugAnalysis(accumulatedText, session?.profession || 'software-engineer');
+          console.log(`⚠️ [ANALYZE-ACCUMULATED] No ChatService configured, checking for direct OpenAI analysis`);
+          
+          // If ChatService not configured but OpenAI is available, use direct analysis
+          if (this.services.openai && session && actionType === 'screenshot') {
+            console.log(`🤖 [ANALYZE-ACCUMULATED] Using direct OpenAI screenshot analysis`);
+            try {
+              aiAnalysis = await this.generateOpenAIScreenshotAnalysis(
+                accumulatedText, 
+                session.profession, 
+                session.interviewType
+              );
+              console.log(`🤖 [ANALYZE-ACCUMULATED] Direct OpenAI analysis successful`);
+            } catch (error) {
+              console.error(`🤖 [ANALYZE-ACCUMULATED] Direct OpenAI analysis failed:`, error);
+              aiAnalysis = this.generateFallbackAnalysis(accumulatedText, session.profession, session.interviewType);
+            }
+          } else {
+            // Use fallback analysis
+            console.log(`⚠️ [ANALYZE-ACCUMULATED] Using fallback analysis`);
+            aiAnalysis = actionType === 'screenshot'
+              ? this.generateFallbackAnalysis(accumulatedText, session?.profession || 'software-engineer', session?.interviewType || 'technical')
+              : this.generateFallbackDebugAnalysis(accumulatedText, session?.profession || 'software-engineer');
+          }
         }
 
         console.log(`🤖 [ANALYZE-ACCUMULATED] Sending analysis result for session ${sessionId}`);
@@ -1161,39 +1198,8 @@ export class IPCController {
   }
 
   private generateFallbackDebugAnalysis(ocrText: string, profession: string): string {
-    return `🐛 **Code Debug Analysis**
-
-**Code Detected:** ${ocrText}
-
-**Debug Analysis for ${profession}:**
-
-**Potential Issues to Check:**
-• **Null Pointer Exceptions** - Check for null references before use
-• **Array Bounds** - Verify array indices are within valid range
-• **Logic Errors** - Review conditional statements and loops
-• **Memory Leaks** - Ensure proper resource cleanup
-• **Type Mismatches** - Verify variable types and conversions
-
-**Common Debugging Steps:**
-1. **Add Logging** - Insert debug statements to trace execution
-2. **Check Inputs** - Validate all input parameters
-3. **Test Edge Cases** - Try boundary conditions and null inputs
-4. **Review Algorithms** - Verify logic matches intended behavior
-5. **Use Debugger** - Step through code line by line
-
-**Best Practices:**
-• Use meaningful variable names
-• Add proper error handling
-• Write unit tests for functions
-• Document complex logic
-• Follow coding standards
-
-**⚠️ Note:** This is a basic debug analysis. For detailed, AI-powered code review with specific bug identification and fixes, please configure your OpenAI API key in Settings.
-
-**Next Steps:**
-1. Go to Settings (⚙️ button)
-2. Add your OpenAI API key
-3. Get intelligent, context-aware debugging assistance!`;
+    // Use centralized fallback debug analysis prompt
+    return this.services.promptLibraryService.getFallbackDebugAnalysisPrompt(ocrText, profession);
   }
 
   /**

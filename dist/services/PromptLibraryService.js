@@ -249,38 +249,50 @@ class PromptLibraryService {
         const professionTitle = profession.replace('-', ' ');
         switch (action) {
             case types_1.ActionType.SCREENSHOT:
-                return `🔍 **Screenshot Analysis Request**
+                return `You are an Interview Assistant specialized in ${professionTitle} ${interviewType} interviews. Analyze the following screenshot content captured during interview preparation.
 
-You are an expert ${professionTitle} interviewer and coach. Please analyze the following screenshot content captured during a ${interviewType} interview preparation session.
+## Hints
 
-**Your Task:**
-1. **Identify** what type of content this is (coding problem, system design, behavioral question, technical documentation, etc.)
-2. **Analyze** the core concepts, requirements, or challenges presented
-3. **Provide Guidance** tailored for a ${professionTitle} ${interviewType} interview context
-4. **Suggest Approach** - Give step-by-step recommendations on how to tackle this
-5. **Key Points** - Highlight important details the candidate should focus on
-6. **Best Practices** - Share relevant industry standards and interview tips
+• Identify what type of content this is (coding problem, system design, behavioral question, etc.)
+• Break down the core concepts and requirements presented
+• Consider the specific skills being tested in this ${interviewType} context
+• Think about the best approach to tackle this systematically
+• Focus on key details that interviewers typically look for
 
-**Context:** This is for ${professionTitle} ${interviewType} interview preparation. Provide practical, actionable advice that demonstrates deep understanding of both the technical content and interview dynamics.
+## Detailed Answer
 
-**Analysis of Screenshot Content:**`;
+Provide comprehensive analysis with:
+- **Problem/Content Identification**: What type of question or challenge this represents
+- **Key Concepts**: Core knowledge areas and skills being tested
+- **Structured Approach**: Step-by-step strategy to address this content
+- **Implementation Details**: Specific techniques, code, or methodologies (if applicable)
+- **Best Practices**: Industry standards and interview-specific advice
+- **Common Pitfalls**: Mistakes to avoid and how to demonstrate expertise
+
+**Context:** This is ${professionTitle} ${interviewType} interview preparation. Focus on practical, actionable guidance.`;
             case types_1.ActionType.DEBUG:
-                return `🐛 **Code Debugging Analysis Request**
+                return `You are an Interview & Debugging Assistant for ${professionTitle} ${interviewType} interviews. Analyze the following code for bugs, errors, or improvements.
 
-You are an expert ${professionTitle} interviewer and code reviewer. Please thoroughly analyze the following code captured during a ${interviewType} interview preparation session.
+## Hints
 
-**Your Task:**
-1. **Code Review** - Examine the code structure, logic, and implementation
-2. **Bug Detection** - Identify any syntax errors, logical bugs, or runtime issues
-3. **Performance Analysis** - Assess efficiency, scalability, and optimization opportunities
-4. **Best Practices** - Check adherence to coding standards and industry conventions
-5. **Interview Perspective** - Evaluate how this would be received in a ${professionTitle} ${interviewType} interview
-6. **Improvement Suggestions** - Provide specific, actionable recommendations
-7. **Alternative Approaches** - Suggest better solutions or different methodologies
+• Look for syntax errors like missing brackets, semicolons, or incorrect operators
+• Check for logical errors in conditional statements and loops
+• Verify variable declarations, types, and scope issues
+• Consider runtime errors like null pointers or array bounds
+• Think about performance issues and optimization opportunities
+• Review code style and adherence to best practices
 
-**Context:** This is for ${professionTitle} ${interviewType} interview preparation. Focus on both correctness and demonstrating strong engineering practices that interviewers value.
+## Detailed Answer
 
-**Code Analysis:**`;
+Provide comprehensive debugging analysis:
+- **Error Identification**: Specific bugs, syntax issues, or logical problems found
+- **Root Cause Analysis**: Why these errors occurred and their potential impact
+- **Corrected Code**: Fixed version with explanations of changes made
+- **Best Practices**: Coding standards and conventions to follow
+- **Performance Considerations**: Efficiency improvements and optimization suggestions
+- **Testing Strategy**: How to validate fixes and prevent similar issues
+
+**Context:** This is ${professionTitle} ${interviewType} interview preparation. Emphasize both correctness and professional coding practices.`;
             default:
                 return `📋 **Interview Question Analysis**
 
@@ -466,27 +478,56 @@ You are an expert ${professionTitle} interview coach. Please provide comprehensi
      * Get OpenAI system prompt for screenshot analysis
      */
     getOpenAISystemPrompt(profession, interviewType) {
+        try {
+            // First try to get the system prompt from stored templates
+            const systemPrompt = this.getSystemPrompt(profession, interviewType);
+            if (systemPrompt && systemPrompt.trim().length > 0) {
+                return systemPrompt;
+            }
+        }
+        catch (error) {
+            console.warn('Failed to get stored system prompt, using fallback:', error);
+        }
+        // Fallback to structured interview assistant prompt for screenshot analysis
         const professionTitle = profession.replace('-', ' ');
-        return `You are an intelligent assistant that processes OCR-scanned exam or assignment text. Your job is to extract **each individual question** and provide structured answers accordingly in ${professionTitle} ${interviewType} interviews.
+        return `You are an Interview Assistant specialized in ${professionTitle} ${interviewType} interviews. You will receive a question extracted from an image (via OCR).
 
-Analyze the following interview question and provide comprehensive guidance.
+Your task is to always respond in the following structured format:
 
-Provide a detailed response that includes:
-1. Carefully read the OCR text below.
-2. Identify and number each question in the format "Question 1", "Question 2", etc.
-3. Problem analysis and approach
-4. Step-by-step solution strategy
-5. Code implementation (if applicable and provide code in the language the question is asked or according to the template given in ocr text) - ALWAYS include working code examples
-6. Time and space complexity analysis
-7. Edge cases to consider
-8. Interview tips and best practices
+## Hints
 
-Format your response with clear sections and use markdown for better readability. Be specific and actionable. ALWAYS include actual code implementations.`;
+Provide 3–7 concise bullet points that guide the candidate to think in the right direction.
+- Keep them short, hint-like, and avoid giving away the full solution immediately.
+- Focus on key concepts, approaches, or important considerations.
+- Help the candidate break down the problem systematically.
+
+## Detailed Answer
+
+Expand on the hints with a well-structured explanation:
+- Use headings, step-by-step reasoning, and examples.
+- If applicable, include tables to summarize differences, comparisons, or key concepts.
+- Always provide a code solution (Python/Java/SQL/etc.) if the question is programming-related.
+- Write in an interview-friendly style: focus on correctness, clarity, and efficiency.
+- For coding problems, clearly state time and space complexity.
+- For theory/design questions, highlight pros, cons, and trade-offs.
+
+The goal is to simulate how a good interviewer or mentor would guide a candidate: first by nudging with hints, then by providing a full, detailed solution.`;
     }
     /**
      * Get OpenAI user prompt for screenshot analysis
      */
     getOpenAIUserPrompt(profession, interviewType, ocrText) {
+        try {
+            // First try to get the screenshot action prompt from stored templates
+            const actionPrompt = this.getActionPrompt(types_1.ActionType.SCREENSHOT, profession, interviewType);
+            if (actionPrompt && actionPrompt.trim().length > 0) {
+                return `${actionPrompt}\n\nOCR Extracted Text:\n---\n${ocrText}\n---`;
+            }
+        }
+        catch (error) {
+            console.warn('Failed to get stored action prompt, using fallback:', error);
+        }
+        // Fallback to hardcoded prompt if no stored template exists
         const professionTitle = profession.replace('-', ' ');
         return `You are an intelligent assistant that processes OCR-scanned exam or assignment text. Your job is to extract **each individual question** and provide structured answers accordingly in ${professionTitle} ${interviewType} interviews.
 
@@ -516,25 +557,35 @@ Return only the structured answers for each question in the above format. Do not
 
 **Question Detected:** ${ocrText}
 
+## Hints
+
+• Break down the problem into smaller, manageable components
+• Identify the core requirements and expected output format
+• Consider what data structures or algorithms might be most suitable
+• Think about edge cases and error handling scenarios
+• Plan your approach before diving into implementation
+
+## Detailed Answer
+
 **Analysis for ${professionTitle} - ${interviewType} Interview:**
 
-**Approach:**
-• Break down the problem into smaller components
-• Identify the core requirements and constraints
-• Consider time and space complexity implications
-• Think about edge cases and error handling
+### Problem Understanding
+- Clarify the requirements and constraints
+- Identify input/output specifications
+- Understand the problem scope and complexity
 
-**General Strategy:**
-1. **Clarify Requirements** - Ask questions about input/output format
-2. **Plan Your Approach** - Discuss algorithm choice and data structures
-3. **Implement Step by Step** - Code incrementally with explanations
-4. **Test and Optimize** - Verify with examples and optimize if needed
+### Approach Strategy
+1. **Initial Analysis** - Break down the problem systematically
+2. **Algorithm Selection** - Choose appropriate data structures and algorithms
+3. **Implementation Plan** - Code step-by-step with clear explanations
+4. **Testing & Optimization** - Verify with examples and optimize if needed
 
-**Interview Tips:**
-• Think out loud during problem solving
-• Start with a brute force solution, then optimize
-• Discuss trade-offs between different approaches
-• Test your solution with edge cases
+### Interview Best Practices
+- Think out loud during problem solving
+- Start with a brute force solution, then optimize
+- Discuss trade-offs between different approaches
+- Test your solution with edge cases
+- Explain time and space complexity
 
 **⚠️ Note:** This is a basic analysis. For personalized, AI-powered assistance with detailed code examples and specific guidance, please configure your OpenAI API key in Settings.
 
@@ -552,28 +603,43 @@ Return only the structured answers for each question in the above format. Do not
 
 **Code Detected:** ${ocrText}
 
+## Hints
+
+• Look for common syntax errors like missing semicolons, brackets, or parentheses
+• Check for null pointer exceptions or undefined variable references
+• Verify array bounds and index access patterns
+• Examine loop conditions and termination criteria
+• Review variable types and potential type conversion issues
+• Consider edge cases and input validation
+
+## Detailed Answer
+
 **Debug Analysis for ${professionTitle}:**
 
-**Potential Issues to Check:**
-• **Null Pointer Exceptions** - Check for null references before use
-• **Array Bounds** - Verify array indices are within valid range
-• **Logic Errors** - Review conditional statements and loops
-• **Memory Leaks** - Ensure proper resource cleanup
-• **Type Mismatches** - Verify variable types and conversions
+### Error Identification
+- **Syntax Issues**: Missing brackets, semicolons, or incorrect operators
+- **Logic Errors**: Incorrect conditional statements or loop logic
+- **Runtime Errors**: Null references, array bounds, or type mismatches
+- **Performance Issues**: Inefficient algorithms or resource leaks
 
-**Common Debugging Steps:**
-1. **Add Logging** - Insert debug statements to trace execution
-2. **Check Inputs** - Validate all input parameters
-3. **Test Edge Cases** - Try boundary conditions and null inputs
-4. **Review Algorithms** - Verify logic matches intended behavior
-5. **Use Debugger** - Step through code line by line
+### Debugging Strategy
+1. **Static Analysis** - Review code structure and syntax
+2. **Add Logging** - Insert debug statements to trace execution flow
+3. **Input Validation** - Check all input parameters and edge cases
+4. **Step-by-Step Testing** - Use debugger or manual verification
+5. **Code Review** - Verify logic matches intended behavior
 
-**Best Practices:**
-• Use meaningful variable names
-• Add proper error handling
-• Write unit tests for functions
-• Document complex logic
-• Follow coding standards
+### Best Practices for Bug Prevention
+- Use meaningful variable names and clear code structure
+- Implement proper error handling and input validation
+- Write unit tests to catch regressions
+- Follow coding standards and style guidelines
+- Document complex logic and assumptions
+
+### Time & Space Complexity Considerations
+- Analyze algorithmic efficiency after fixing bugs
+- Consider memory usage and potential optimizations
+- Identify bottlenecks and scaling limitations
 
 **⚠️ Note:** This is a basic debug analysis. For detailed, AI-powered code review with specific bug identification and fixes, please configure your OpenAI API key in Settings.
 

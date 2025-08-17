@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { ApplicationController } from './controllers/ApplicationController';
+import { ApplicationController } from './src/controllers/ApplicationController';
 
 /**
  * Main application entry point
