@@ -277,13 +277,14 @@
             color: white;
             border: none;
             border-radius: 4px;
-            padding: 6px 10px;
-            font-size: 11px;
+            padding: 6px 8px;
+            font-size: 10px;
             cursor: pointer;
             transition: all 0.2s ease;
             font-weight: 500;
             flex: 1;
-            min-width: 90px;
+            min-width: 75px;
+            text-align: center;
         }
         
         .capture-action-btn:hover:not(:disabled) {
@@ -302,11 +303,21 @@
             transform: none !important;
         }
         
+        /* Special styling for Area Capture button (4th button) */
         .capture-action-btn:nth-child(4) {
-            background: #28a745;
+            background: #6f42c1;
         }
         
         .capture-action-btn:nth-child(4):hover:not(:disabled) {
+            background: #5a32a3;
+        }
+        
+        /* Special styling for Analyze button (5th button) */
+        .capture-action-btn:nth-child(5) {
+            background: #28a745;
+        }
+        
+        .capture-action-btn:nth-child(5):hover:not(:disabled) {
             background: #218838;
         }
         

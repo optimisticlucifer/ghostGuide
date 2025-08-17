@@ -465,57 +465,9 @@ export class IPCController {
         const ocrText = await this.services.ocrService.extractText(areaScreenshot);
         console.log(`🔲 [AREA-CAPTURE] OCR extraction completed: "${ocrText.substring(0, 100)}..."`);
 
-        // Send the extracted OCR text to chat first
+        // Don't send OCR text to chat automatically - let the UI handle it
+        // Don't do automatic AI analysis - user will choose when to analyze
         const sessionWindow = this.sessionWindows.get(sessionId);
-        if (sessionWindow && !sessionWindow.isDestroyed()) {
-          sessionWindow.webContents.send('chat-response', {
-            sessionId,
-            content: `📸 **Area Captured - OCR Text Extracted:**\n\n"${ocrText}"`,
-            timestamp: new Date().toISOString(),
-            metadata: {
-              source: 'area-capture-ocr',
-              action: 'area-capture'
-            }
-          });
-        }
-
-        // Get AI analysis of the captured area text
-        let analysis = '';
-        const session = this.sessions.get(sessionId);
-        if (this.services.openai && session && ocrText.trim()) {
-          console.log(`🔲 [AREA-CAPTURE] Generating AI analysis for captured area text...`);
-          
-          // Create the prompt that will be sent to LLM
-          const llmPrompt = `Please analyze this text I captured from a specific area of my screen during my ${session.profession} ${session.interviewType} interview preparation: "${ocrText}"`;
-          
-          // Display the prompt being sent to LLM in chat
-          if (sessionWindow && !sessionWindow.isDestroyed()) {
-            sessionWindow.webContents.send('chat-response', {
-              sessionId,
-              content: `🤖 **Sending to LLM for Analysis:**\n\n"${llmPrompt}"`,
-              timestamp: new Date().toISOString(),
-              metadata: {
-                source: 'area-capture-prompt',
-                action: 'area-capture'
-              }
-            });
-          }
-          
-          try {
-            const aiResponse = await this.services.chatService.sendMessage(
-              sessionId,
-              llmPrompt
-            );
-            analysis = aiResponse.response;
-          } catch (aiError) {
-            console.error(`🔲 [AREA-CAPTURE] AI analysis failed:`, aiError);
-            analysis = 'Unable to generate analysis for the captured area.';
-          }
-        } else {
-          analysis = ocrText.trim() ? 
-            'Configure your OpenAI API key in Settings for AI-powered analysis of captured areas.' :
-            'No text was detected in the captured area.';
-        }
 
         // Send successful result to session window (reuse existing sessionWindow reference)
         if (sessionWindow && !sessionWindow.isDestroyed()) {
@@ -524,7 +476,6 @@ export class IPCController {
             sessionId,
             coordinates,
             text: ocrText,
-            analysis,
             timestamp: new Date().toISOString()
           });
         } else {
@@ -533,7 +484,6 @@ export class IPCController {
             sessionId,
             coordinates,
             text: ocrText,
-            analysis,
             timestamp: new Date().toISOString()
           });
         }

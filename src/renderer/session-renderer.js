@@ -262,12 +262,37 @@ class SessionWindowRenderer {
         timestamp: result.timestamp
       });
       
-      if (result.analysis) {
-        this.addMessage('assistant', result.analysis, { 
-          action: 'area-capture',
+      // Check if this area capture was triggered from a context menu action
+      if (this.pendingAreaCaptureData) {
+        console.log('🔲 [AREA] Area capture was triggered from context menu, combining with accumulated text');
+        
+        // Combine the accumulated text with the new area capture text
+        const combinedText = this.pendingAreaCaptureData.accumulatedText + '\n\n--- Area Capture ---\n' + result.text;
+        
+        // Show the combined result and add action buttons again
+        this.addMessage('assistant', `✨ **Combined ${this.pendingAreaCaptureData.actionType} Context**\n\n**Total text length:** ${combinedText.length} characters\n\n**Latest addition:** Area capture text (${result.text.length} characters)`, {
+          action: this.pendingAreaCaptureData.actionType,
           timestamp: result.timestamp
         });
+        
+        // Add action buttons with the combined text
+        this.addCaptureActionButtons(
+          this.pendingAreaCaptureData.sessionId, 
+          this.pendingAreaCaptureData.actionType, 
+          combinedText
+        );
+        
+        // Clear the pending data
+        this.pendingAreaCaptureData = null;
+        
+      } else {
+        // This was a direct area capture (from toolbar button)
+        // Show the "Need more context" block for area captures too
+        console.log('🔲 [AREA] Direct area capture, showing context options');
+        this.addCaptureActionButtons(result.sessionId, 'area-capture', result.text);
       }
+      
+      // Don't automatically show analysis - let user choose via context menu
     });
     
     ipcRenderer.on('area-capture-error', (event, error) => {
@@ -545,7 +570,7 @@ class SessionWindowRenderer {
     console.log('🎯 [UI] addCaptureActionButtons called:', { sessionId, actionType, accumulatedText: accumulatedText.substring(0, 100) + '...' });
     
     // IMMEDIATE DEBUG MESSAGE to verify function is called
-    this.addMessage('system', '🎯 [DEBUG] addCaptureActionButtons function STARTED!', { action: 'debug' });
+    // this.addMessage('system', '🎯 [DEBUG] addCaptureActionButtons function STARTED!', { action: 'debug' });
     
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'message assistant capture-actions';
@@ -560,11 +585,12 @@ class SessionWindowRenderer {
     const buttonsContainer = document.createElement('div');
     buttonsContainer.className = 'capture-action-buttons';
     
-    // Create the four action buttons
+    // Create the five action buttons (added area capture)
     const actions = [
       { id: 'capture-more', text: '📷 Capture More', type: 'full' },
       { id: 'capture-left', text: '⬅️ Left Half', type: 'left_half' },
       { id: 'capture-right', text: '➡️ Right Half', type: 'right_half' },
+      { id: 'capture-area', text: '🔲 Area Capture', type: 'area' },
       { id: 'no-need', text: '✅ No Need - Analyze', type: 'analyze' }
     ];
     
@@ -624,6 +650,9 @@ class SessionWindowRenderer {
       case 'right_half':
         this.handleCaptureRightHalf(sessionId, actionType, accumulatedText);
         break;
+      case 'area':
+        this.handleCaptureArea(sessionId, actionType, accumulatedText);
+        break;
       case 'analyze':
         this.handleAnalyzeText(sessionId, actionType, accumulatedText);
         break;
@@ -673,6 +702,23 @@ class SessionWindowRenderer {
       captureType: 'right_half',
       accumulatedText
     });
+  }
+
+  /**
+   * 🎯 Handle "Area Capture" action - starts area selection mode
+   */
+  handleCaptureArea(sessionId, actionType, accumulatedText) {
+    // Store the accumulated text for when the area capture completes
+    this.pendingAreaCaptureData = {
+      sessionId,
+      actionType,
+      accumulatedText
+    };
+    
+    this.addMessage('user', `🔲 **Starting Area Capture...**\n\nSelect a rectangular area to add to ${actionType === 'screenshot' ? 'screenshot' : 'debug'} context`);
+    
+    // Start the area capture process
+    this.startAreaCapture();
   }
 
   /**
@@ -729,9 +775,10 @@ class SessionWindowRenderer {
   setupGlobalClickListeners() {
     console.log('🔲 [UI] Setting up global mouse click capture...');
     
-    this.addMessage('assistant', '🔲 **Mouse Click Capture Mode**\n\n🖱️ **Instructions:**\n1. Click anywhere on your screen for the **first corner**\n2. Click again for the **second corner**\n3. The rectangular area will be captured and analyzed\n\n⚠️ **Note:** Click outside this window to capture screen areas', {
-      action: 'area-capture'
-    });
+    // Commented out to reduce chat clutter - user already knows they're in area capture mode
+    // this.addMessage('assistant', '🔲 **Mouse Click Capture Mode**\n\n🖖️ **Instructions:**\n1. Click anywhere on your screen for the **first corner**\n2. Click again for the **second corner**\n3. The rectangular area will be captured and analyzed\n\n⚠️ **Note:** Click outside this window to capture screen areas', {
+    //   action: 'area-capture'
+    // });
     
     // Request the main process to start capturing mouse coordinates
     ipcRenderer.send('start-coordinate-capture', { sessionId: this.sessionId });
@@ -787,18 +834,18 @@ class SessionWindowRenderer {
     
     if (this.areaPoints.length === 1) {
       // First point captured, wait for second
-      this.addMessage('assistant', `✅ **First point captured:** (${x}, ${y})\n\n📍 Now click the second corner to complete the area selection`, {
-        action: 'area-capture'
-      });
+      // this.addMessage('assistant', `✅ **First point captured:** (${x}, ${y})\n\n📍 Now click the second corner to complete the area selection`, {
+      //   action: 'area-capture'
+      // });
       
     } else if (this.areaPoints.length === 2) {
       // Both points captured, proceed with area capture
       const firstPoint = this.areaPoints[0];
       const secondPoint = this.areaPoints[1];
       
-      this.addMessage('assistant', `✅ **Second point captured:** (${x}, ${y})\n\n🔲 **Area defined:** (${firstPoint.x}, ${firstPoint.y}) to (${secondPoint.x}, ${secondPoint.y})\n\n📸 Capturing selected area...`, {
-        action: 'area-capture'
-      });
+      // this.addMessage('assistant', `✅ **Second point captured:** (${x}, ${y})\n\n🔲 **Area defined:** (${firstPoint.x}, ${firstPoint.y}) to (${secondPoint.x}, ${secondPoint.y})\n\n📸 Capturing selected area...`, {
+      //   action: 'area-capture'
+      // });
       
       // Process the area capture
       this.processAreaCapture(firstPoint, secondPoint);
