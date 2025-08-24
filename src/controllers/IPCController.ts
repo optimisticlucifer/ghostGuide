@@ -563,7 +563,19 @@ export class IPCController {
           console.log(`🤖 [ANALYZE-ACCUMULATED] Using persistent ChatService for accumulated ${actionType} analysis`);
           try {
             // Use appropriate action type for processing
-            const action = actionType === 'screenshot' ? ActionType.SCREENSHOT : ActionType.DEBUG;
+            // let action = actionType === 'screenshot' ? ActionType.SCREENSHOT : ActionType.DEBUG;
+            // action = actionType === 'area-capture' ? ActionType.SCREENSHOT : action;
+            let action = ActionType.SCREENSHOT;
+            if (actionType == 'area-capture') {
+              console.log(`🤖 [ANALYZE-ACCUMULATED] Area capture analysis`);
+              action = ActionType.SCREENSHOT;
+            }else if (actionType == 'debug') {
+              console.log(`🤖 [ANALYZE-ACCUMULATED] Debug analysis`);
+              action = ActionType.DEBUG;
+            }else{
+              console.log(`🤖 [ANALYZE-ACCUMULATED] Screenshot analysis`);
+              action = ActionType.SCREENSHOT;
+            }
             aiAnalysis = await this.services.chatService.processOCRText(sessionId, accumulatedText, action);
             console.log(`🤖 [ANALYZE-ACCUMULATED] Generated analysis for session ${sessionId}`);
           } catch (error) {
@@ -588,6 +600,13 @@ export class IPCController {
               aiAnalysis = actionType === 'screenshot' 
                 ? this.generateFallbackAnalysis(accumulatedText, session.profession, session.interviewType)
                 : this.generateFallbackDebugAnalysis(accumulatedText, session.profession);
+              console.log(`🤖 [ANALYZE-ACCUMULATED] Using fallback analysis for ${actionType}`);
+              // if (actionType === 'debug') { 
+              //   aiAnalysis = this.generateFallbackDebugAnalysis(accumulatedText, session.profession);
+              // } else{
+              //   aiAnalysis = this.generateFallbackAnalysis(accumulatedText, session.profession, session.interviewType);
+              // }
+             
             }
           }
         } else {
@@ -619,9 +638,15 @@ export class IPCController {
         console.log(`🤖 [ANALYZE-ACCUMULATED] Sending analysis result for session ${sessionId}`);
 
         // Send the final analysis to UI as a regular chat response
+        let content="Screenshot";
+        if(actionType === 'area-capture' || actionType === 'screenshot'){
+          content="Screenshot";
+        }else{
+          content="Debug";
+        }
         event.reply('chat-response', {
           sessionId,
-          content: `📝 **Complete ${actionType === 'screenshot' ? 'Screenshot' : 'Debug'} Analysis:**\n\n${aiAnalysis}`,
+          content: `📝 **Complete ${content} Analysis:**\n\n${aiAnalysis}`,
           metadata: {
             action: actionType,
             accumulatedTextLength: accumulatedText.length,

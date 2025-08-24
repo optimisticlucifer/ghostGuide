@@ -290,53 +290,76 @@ export class PromptLibraryService {
    */
   private getFallbackActionPrompt(action: ActionType, profession: string, interviewType: string): string {
     const professionTitle = profession.replace('-', ' ');
+    console.log('getFallbackActionPrompt', action, profession, interviewType);
     
     switch (action) {
       case ActionType.SCREENSHOT:
         return `You are an Interview Assistant specialized in ${professionTitle} ${interviewType} interviews. Analyze the following screenshot content captured during interview preparation.
 
-## Hints
+Given Hints
+Provide 3–7 concise bullet points that guide the candidate toward the solution or reasoning path.
+• Keep them short and hint-like (no full solution here)
+• Focus on key concepts and approach strategies
+• Help identify what the interviewer is really looking for
+• Guide systematic thinking and problem breakdown
 
-• Identify what type of content this is (coding problem, system design, behavioral question, etc.)
+• Identify what type of content this is (coding problem(and in what language answer code is required if given in code else use python if no syntax for answer is given), system design, behavioral question, etc.)
 • Break down the core concepts and requirements presented
 • Consider the specific skills being tested in this ${interviewType} context
 • Think about the best approach to tackle this systematically
 • Focus on key details that interviewers typically look for
+• Provide a short “thinking aloud” style summary that I can say at the start to show structured understanding
 
-## Detailed Answer
+  Detailed Answer
 
-Provide comprehensive analysis with:
-- **Problem/Content Identification**: What type of question or challenge this represents
-- **Key Concepts**: Core knowledge areas and skills being tested
-- **Structured Approach**: Step-by-step strategy to address this content
-- **Implementation Details**: Specific techniques, code, or methodologies (if applicable)
-- **Best Practices**: Industry standards and interview-specific advice
-- **Common Pitfalls**: Mistakes to avoid and how to demonstrate expertise
+  Provide a direct interview-ready response with:
 
-**Context:** This is ${professionTitle} ${interviewType} interview preparation. Focus on practical, actionable guidance.`;
+  1. Problem/Content Identification: What type of question or challenge this represents
+
+  2. Key Concepts: Core knowledge areas and skills being tested
+
+  3. Structured Approach: Step-by-step strategy to solve or explain, starting with a simple/brute-force idea and then moving to an optimized/advanced solution
+
+  4. Implementation Details: Concise code, pseudocode, frameworks, or structured examples I can speak through
+
+  5. Explanation: Narration-style walkthrough of the solution as if I’m explaining to the interviewer step by step
+
+  6. Best Practices: Industry standards and tips to highlight expertise in an interview
+
+  7. Common Pitfalls: Mistakes to avoid and how to demonstrate clear, confident reasoning
+
+Context: This is ${professionTitle} ${interviewType} interview preparation. Focus on practical, structured, and spoken-style guidance so I can directly say it to the interviewer.`;
       case ActionType.DEBUG:
-        return `You are an Interview & Debugging Assistant for ${professionTitle} ${interviewType} interviews. Analyze the following code for bugs, errors, or improvements.
+        return `You are an Interview & Debugging Assistant for ${professionTitle} ${interviewType} interviews. Analyze the following code or OCR-extracted text for bugs, errors, or improvements.
 
-## Hints
+Hints
 
+Provide 3–7 concise bullet points that guide the candidate toward the solution or reasoning path.
 • Look for syntax errors like missing brackets, semicolons, or incorrect operators
 • Check for logical errors in conditional statements and loops
 • Verify variable declarations, types, and scope issues
 • Consider runtime errors like null pointers or array bounds
+• Detect OCR-related mistakes (e.g., 0 vs O, 1 vs l, misplaced symbols, indentation issues)
 • Think about performance issues and optimization opportunities
-• Review code style and adherence to best practices
+• Review code style, readability, and adherence to best practices
 
-## Detailed Answer
+  Detailed Answer
 
-Provide comprehensive debugging analysis:
-- **Error Identification**: Specific bugs, syntax issues, or logical problems found
-- **Root Cause Analysis**: Why these errors occurred and their potential impact
-- **Corrected Code**: Fixed version with explanations of changes made
-- **Best Practices**: Coding standards and conventions to follow
-- **Performance Considerations**: Efficiency improvements and optimization suggestions
-- **Testing Strategy**: How to validate fixes and prevent similar issues
+  1. Provide comprehensive debugging analysis:
 
-**Context:** This is ${professionTitle} ${interviewType} interview preparation. Emphasize both correctness and professional coding practices.`;
+  2. Error Identification: Specific syntax, logical, runtime, or OCR-induced problems found
+
+  3. Root Cause Analysis: Why these errors occurred and their potential impact
+
+  4. Corrected Code: Fixed version with explanations of changes made
+
+  5. Best Practices: Coding standards, naming conventions, and style guidelines to follow
+
+  6. Performance Considerations: Efficiency improvements and optimization suggestions
+
+  7. Testing Strategy: How to validate fixes (unit tests, edge cases, sample inputs) and prevent similar issues
+
+  Context: This is ${professionTitle} ${interviewType} interview preparation. Emphasize both correctness and professional coding practices, while showing clear reasoning that can be directly explained to the interviewer.`;
       default:
         return `📋 **Interview Question Analysis**
 
@@ -533,6 +556,7 @@ You are an expert ${professionTitle} interview coach. Please provide comprehensi
   getAudioCoachingPrompt(audioType: AudioPromptType, profession: string, interviewType: string, transcript: string): string {
     const cacheKey = `audio_${audioType}_${profession}_${interviewType}`;
     const professionTitle = profession.replace('-', ' ');
+    console.log('getAudioCoachingPrompt', audioType, profession, interviewType, transcript);
     
     switch (audioType) {
       case AudioPromptType.INTERVIEWER_QUESTION:
@@ -554,26 +578,47 @@ Provide 3–7 concise bullet points that guide the candidate toward the solution
 
 ## Detailed Answer
 
-Expand on the hints with clear headings, step-by-step reasoning, and examples:
-• Use headings and structured explanations
-• If useful, include tables (comparisons, trade-offs, complexity, pros/cons)
-• If the question is programming-related, always include a code solution
-• Be interview-friendly: emphasize correctness, clarity, and efficiency
-• For coding questions: clearly state time and space complexity
-• For theory/design: highlight pros, cons, and trade-offs
-• If there are multiple sub-questions, answer them in separate subsections
+Deliver a direct, spoken-style response the candidate can use immediately:
 
-Tailor your response for this ${professionTitle} ${interviewType} interview context.`;
+1. Use clear sections and short paragraphs.
+
+2. Phrase the answer in first-person, natural interview style (e.g., “I would approach this by…”).
+
+3. Always aim for clarity, confidence, and correctness.
+
+4. If programming-related:
+  a)Include a clean, correct code snippet.
+
+  b)State time and space complexity clearly.
+
+5. If theoretical/design-related:
+
+  a) Highlight pros, cons, and trade-offs.
+
+  b) Use tables or bullet lists if comparisons help.
+
+6. If multiple sub-questions exist, answer each under a separate heading.
+
+Tailor your response for this ${professionTitle} ${interviewType} interview context, ensuring it sounds like something the candidate could say out loud in an interview without edits.`;
       
       case AudioPromptType.INTERVIEWEE_RESPONSE:
-        return `You are a Voice Interview Assistant for ${professionTitle} ${interviewType} interviews. You will receive a transcription of the interviewee's speech. Treat it as their question/request and produce a helpful, interview-ready answer.
+        return `You are a Voice Interview Assistant for ${professionTitle} ${interviewType} interviews. You will receive a transcription of the interviewee's speech.
+
+If the transcript is a question/request from the interviewee, treat it as the underlying interviewer’s question and produce a helpful, interview-ready answer in the format below.
+
+If the transcript is an answer the interviewee is giving, analyze it and suggest additions or improvements that the interviewee can naturally weave in while speaking.
 
 Transcript: "${transcript}"
 
-Interpret & Focus: Identify the candidate's intent/question even if phrased informally. If incomplete, make a minimal assumption and continue.
+Interpret & Focus
+
+1. Identify the candidate's intent/question even if phrased informally.
+
+2. If incomplete, make a minimal assumption and continue.
+
+3. If the transcript is an answer, keep their original flow but provide refinements as suggested additions.
 
 Structure your output exactly as follows:
-
 ## Hints
 
 Provide 3–7 concise, actionable bullets that nudge the candidate in the right direction:
@@ -592,7 +637,8 @@ Provide a well-structured explanation with headings, step-by-step reasoning, and
 • For coding: include time/space complexity analysis
 • For theory/design: discuss pros/cons and trade-offs
 
-Tailor your response for this ${professionTitle} ${interviewType} interview preparation.`;
+If the transcript was an answer rather than a question, instead of generating a fresh answer, write:
+“### Suggested Additions” and list improvements the interviewee could add directly to sound more complete, structured, or impactful.`;
       
       case AudioPromptType.GENERAL_TRANSCRIPT:
       default:
@@ -601,7 +647,7 @@ Tailor your response for this ${professionTitle} ${interviewType} interview prep
 Transcript: "${transcript}"
 
 ## Hints
-
+Provide 3–7 concise bullet points that guide the candidate toward the solution or reasoning path.
 • Identify the main topics or questions being discussed
 • Consider what skills or knowledge areas are being tested
 • Think about appropriate response strategies for this context
