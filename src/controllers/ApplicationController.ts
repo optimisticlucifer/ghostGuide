@@ -18,7 +18,7 @@ import { SessionManager } from '../services/SessionManager';
 import { ScreenSharingDetectionService } from '../services/ScreenSharingDetectionService';
 import { WindowManager } from '../services/WindowManager';
 import { IPCController, IPCServices } from './IPCController';
-import { AudioSource } from '../types';
+import { AudioSource, ActionType } from '../types';
 
 export interface ApplicationConfig {
   stealthMode?: boolean;
@@ -60,6 +60,20 @@ export class ApplicationController {
 
   constructor(config: ApplicationConfig = {}) {
     this.config = { stealthMode: true, debug: false, logLevel: 'info', ...config };
+
+    // Ensure Application Support directory uses "system Assistant"
+    try {
+      const desiredUserData = path.join(app.getPath('appData'), 'system Assistant');
+      if (!fs.existsSync(desiredUserData)) {
+        fs.mkdirSync(desiredUserData, { recursive: true });
+      }
+      app.setPath('userData', desiredUserData);
+      // Optionally set app name to align with folder naming
+      try { (app as any).setName?.('system Assistant'); } catch {}
+    } catch (e) {
+      console.warn('Failed to override userData path:', e);
+    }
+
     this.store = new Store();
     
     this.initializeLogging();
@@ -133,8 +147,17 @@ export class ApplicationController {
       titleBarStyle: 'hidden',
       vibrancy: 'under-window',
       visualEffectState: 'inactive',
-      opacity: 1
+      opacity: 1,
+      acceptFirstMouse: true
     });
+
+    // Ensure always-on-top across full-screen spaces
+    try {
+      this.mainWindow.setAlwaysOnTop(true, 'screen-saver');
+      this.mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    } catch (e) {
+      this.writeLog(`⚠️ [APP] Failed to apply full-screen visibility settings to main window: ${(e as Error).message}`);
+    }
 
     // Load main window content
     this.loadMainWindowContent();
@@ -186,8 +209,17 @@ export class ApplicationController {
       movable: true,
       hiddenInMissionControl: true,
       fullscreenable: false,
-      titleBarStyle: 'default'
+      titleBarStyle: 'default',
+      acceptFirstMouse: true
     });
+
+    // Ensure always-on-top across full-screen spaces
+    try {
+      sessionWindow.setAlwaysOnTop(true, 'screen-saver');
+      sessionWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    } catch (e) {
+      this.writeLog(`⚠️ [APP] Failed to apply full-screen visibility settings to session window: ${(e as Error).message}`);
+    }
 
     // Load session window content
     this.loadSessionWindowContent(sessionWindow, sessionId, config);
@@ -547,6 +579,23 @@ export class ApplicationController {
       this.handleAutoRecorderSend();
     });
 
+    // Cmd+Q → Global screenshot analysis (override default quit)
+    globalShortcut.register('CommandOrControl+Q', () => {
+      this.writeLog('⌨️ [APP] Cmd+Q pressed - performing screenshot analysis instead of quitting');
+      this.handleGlobalScreenshotAnalysis();
+    });
+
+    // Cmd+Up / Cmd+Down → Scroll answer pane in the active session window
+    globalShortcut.register('CommandOrControl+Up', () => {
+      this.writeLog('⌨️ [APP] Cmd+Up pressed - scrolling answer pane up');
+      this.sendScrollToActiveSession(-200);
+    });
+
+    globalShortcut.register('CommandOrControl+Down', () => {
+      this.writeLog('⌨️ [APP] Cmd+Down pressed - scrolling answer pane down');
+      this.sendScrollToActiveSession(200);
+    });
+
     this.writeLog('✅ [APP] Global hotkeys registered');
   }
 
@@ -585,6 +634,62 @@ export class ApplicationController {
    * Handle Cmd+S pressed - send auto recorder transcription to LLM
    * Now waits for any pending transcription to complete before processing
    */
+
+  // Determine the active session to target actions
+  private getFocusedOrLastSessionId(): string | null {
+    // Prefer focused session window
+    for (const [sessionId, win] of this.sessionWindows.entries()) {
+      try {
+        if (win && !win.isDestroyed() && win.isVisible() && win.isFocused()) {
+          return sessionId;
+        }
+      } catch {}
+    }
+    // Fallback to the last created session window
+    const keys = Array.from(this.sessionWindows.keys());
+    return keys.length > 0 ? keys[keys.length - 1] : null;
+  }
+
+  // Global screenshot analysis flow for Cmd+Q
+  private async handleGlobalScreenshotAnalysis(): Promise<void> {
+    try {
+      const targetSessionId = this.getFocusedOrLastSessionId();
+      if (!targetSessionId) {
+        this.writeLog('⚠️ [HOTKEY] No active session found for screenshot analysis');
+        return;
+      }
+
+      this.writeLog(`📷 [HOTKEY] Starting screenshot analysis for session ${targetSessionId}`);
+
+      const screenshot = await this.services.captureService.captureScreen();
+      const ocrText = await this.services.ocrService.extractText(screenshot);
+
+      const aiResponse = await this.services.chatService.processOCRText(targetSessionId, ocrText, ActionType.SCREENSHOT);
+
+      const sessionWindow = this.sessionWindows.get(targetSessionId);
+      if (sessionWindow && !sessionWindow.isDestroyed()) {
+        sessionWindow.webContents.send('chat-response', {
+          content: aiResponse,
+          metadata: { action: 'screenshot' },
+        });
+      }
+
+      this.writeLog('✅ [HOTKEY] Screenshot analysis completed');
+    } catch (error) {
+      this.writeLog(`❌ [HOTKEY] Screenshot analysis failed: ${(error as Error).message}`);
+    }
+  }
+
+  // Send scroll command to the active session window
+  private sendScrollToActiveSession(delta: number): void {
+    const sessionId = this.getFocusedOrLastSessionId();
+    if (!sessionId) return;
+
+    const sessionWindow = this.sessionWindows.get(sessionId);
+    if (sessionWindow && !sessionWindow.isDestroyed()) {
+      sessionWindow.webContents.send('scroll-answer', { delta });
+    }
+  }
   private async handleAutoRecorderSend(): Promise<void> {
     this.writeLog('🔄 [AUTO RECORDER] Cmd+S pressed - processing auto recorder transcription');
     

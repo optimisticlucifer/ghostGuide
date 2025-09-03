@@ -1368,10 +1368,50 @@ export class IPCController {
   }
 
   private setupAPIKeyHandlers(): void {
+    // Settings window handlers
+    ipcMain.on('get-config', async (event) => {
+      console.log('⚙️ [IPC] Config requested');
+      try {
+        const config = this.services.configurationManager.getConfiguration();
+        event.reply('config-data', config);
+      } catch (error) {
+        console.error('⚙️ [IPC] Failed to get config:', error);
+        event.reply('config-error', (error as Error).message);
+      }
+    });
+
+    ipcMain.on('update-api-key', async (event, apiKey) => {
+      console.log('🔑 [IPC] Updating API key...');
+      try {
+        await this.services.configurationManager.updateApiKey(apiKey);
+        
+        // Re-initialize OpenAI in ApplicationController
+        if (this.services.openai) {
+          this.services.openai = new OpenAI({ apiKey });
+        } else {
+          this.services.openai = new OpenAI({ apiKey });
+        }
+        
+        console.log('🔑 [IPC] API key updated successfully');
+        event.reply('api-key-updated');
+      } catch (error) {
+        console.error('🔑 [IPC] Failed to update API key:', error);
+        event.reply('api-key-invalid', 'Failed to save API key: ' + (error as Error).message);
+      }
+    });
+
     ipcMain.on('save-api-key', async (event, apiKey) => {
       console.log('🔑 [IPC] Saving API key...');
       try {
         await this.services.configurationManager.updateApiKey(apiKey);
+        
+        // Re-initialize OpenAI in ApplicationController
+        if (this.services.openai) {
+          this.services.openai = new OpenAI({ apiKey });
+        } else {
+          this.services.openai = new OpenAI({ apiKey });
+        }
+        
         console.log('🔑 [IPC] API key saved successfully');
         event.reply('api-key-saved');
       } catch (error) {
@@ -1390,6 +1430,76 @@ export class IPCController {
       } catch (error) {
         console.error('🔑 [IPC] API key test failed:', error);
         event.reply('api-key-invalid', (error as Error).message);
+      }
+    });
+
+    // User preferences handlers
+    ipcMain.on('update-preferences', async (event, preferences) => {
+      console.log('⚙️ [IPC] Updating user preferences:', preferences);
+      try {
+        await this.services.configurationManager.updateUserPreferences(preferences);
+        console.log('⚙️ [IPC] User preferences updated successfully');
+        event.reply('preferences-updated');
+      } catch (error) {
+        console.error('⚙️ [IPC] Failed to update preferences:', error);
+        event.reply('config-error', (error as Error).message);
+      }
+    });
+
+    // Prompt template handlers
+    ipcMain.on('get-prompt-template', async (event, data) => {
+      console.log('📝 [IPC] Prompt template requested:', data);
+      try {
+        const { profession, interviewType, action } = data;
+        // Get prompt template from configuration
+        const config = this.services.configurationManager.getConfiguration();
+        let template = '';
+        
+        if (config.promptLibrary && config.promptLibrary[profession] && config.promptLibrary[profession][interviewType]) {
+          const prompts = config.promptLibrary[profession][interviewType];
+          if (action === 'system') {
+            template = prompts.system || '';
+          } else if (prompts.actions && prompts.actions[action]) {
+            template = prompts.actions[action] || '';
+          }
+        }
+        
+        event.reply('prompt-template-loaded', template);
+      } catch (error) {
+        console.error('📝 [IPC] Failed to get prompt template:', error);
+        event.reply('prompt-error', (error as Error).message);
+      }
+    });
+
+    ipcMain.on('save-prompt-template', async (event, data) => {
+      console.log('📝 [IPC] Saving prompt template:', data);
+      try {
+        const { profession, interviewType, action, template } = data;
+        
+        // Update prompt template in configuration
+        const config = this.services.configurationManager.getConfiguration();
+        if (!config.promptLibrary) config.promptLibrary = {};
+        if (!config.promptLibrary[profession]) config.promptLibrary[profession] = {};
+        if (!config.promptLibrary[profession][interviewType]) {
+          config.promptLibrary[profession][interviewType] = { system: '', actions: {} };
+        }
+        
+        if (action === 'system') {
+          config.promptLibrary[profession][interviewType].system = template;
+        } else {
+          if (!config.promptLibrary[profession][interviewType].actions) {
+            config.promptLibrary[profession][interviewType].actions = {};
+          }
+          config.promptLibrary[profession][interviewType].actions[action] = template;
+        }
+        
+        await this.services.configurationManager.updatePromptLibrary(config.promptLibrary);
+        
+        console.log('📝 [IPC] Prompt template saved successfully');
+        event.reply('prompt-template-saved');
+      } catch (error) {
+        console.error('📝 [IPC] Failed to save prompt template:', error);
+        event.reply('prompt-error', (error as Error).message);
       }
     });
   }
@@ -1557,20 +1667,24 @@ export class IPCController {
           source: 'context-initialization'
         });
 
-        // Send AI's response
-        sessionWindow.webContents.send('chat-response', {
-          sessionId,
-          content: chatResult.response,
-          timestamp: new Date().toISOString(),
-          source: 'ai-initialization'
-        });
-      }
-
-      console.log(`🤖 [CONTEXT] Chat session initialized successfully for ${sessionId}`);
-    } catch (error) {
-      console.error(`🤖 [CONTEXT] Error initializing chat session with context:`, error);
+      // Send AI's response
+      sessionWindow.webContents.send('chat-response', {
+        sessionId,
+        content: chatResult.response,
+        timestamp: new Date().toISOString(),
+        source: 'ai-initialization'
+      });
     }
+
+    // 🎯 CRITICAL FIX: Initialize session RAG settings in ChatService
+    this.services.chatService.initializeSessionRAG(sessionId);
+    console.log(`🤖 [CONTEXT] Session RAG initialized for ${sessionId}`);
+
+    console.log(`🤖 [CONTEXT] Chat session initialized successfully for ${sessionId}`);
+  } catch (error) {
+    console.error(`🤖 [CONTEXT] Error initializing chat session with context:`, error);
   }
+}
 
   /**
    * Count supported files in a directory for feedback

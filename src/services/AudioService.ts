@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { app } from 'electron';
 import { AudioSource } from '../types';
 
 // Whisper transcription will be handled via whisper.cpp CLI invocation
@@ -67,6 +68,12 @@ export class AudioService {
   private tempDir: string;
   private segmentDuration = 5000; // 5 seconds in milliseconds
   private isInitialized = false;
+
+  // Resolved binary paths (prod-safe)
+  private ffmpegPath: string = 'ffmpeg';
+  private ffprobePath: string = 'ffprobe';
+  private whisperExecutablePath: string = AUDIO_CONFIG.WHISPER_EXECUTABLE;
+  private whisperModelPath: string = AUDIO_CONFIG.MODEL_PATH;
   
   // Auto Recorder Mode state
   private autoRecorderActive = false;
@@ -90,14 +97,93 @@ export class AudioService {
    */
   async initialize(): Promise<void> {
     try {
+      // Resolve binary/model paths in production-safe way
+      this.resolvePaths();
+
       await this.checkDependencies();
       await this.checkAudioDevices();
       this.isInitialized = true;
       console.log('Audio Service initialized successfully');
+      console.log(`🎤 [AUDIO] Using ffmpeg at: ${this.ffmpegPath}`);
+      console.log(`🎤 [AUDIO] Using ffprobe at: ${this.ffprobePath}`);
+      console.log(`🎤 [AUDIO] Using whisper at: ${this.whisperExecutablePath}`);
+      console.log(`🎤 [AUDIO] Using whisper model: ${this.whisperModelPath}`);
     } catch (error) {
       console.error('Failed to initialize Audio Service:', error);
       throw new Error('Audio Service initialization failed');
     }
+  }
+
+  /**
+   * Resolve executable and model paths considering packaged app context
+   */
+  private resolvePaths(): void {
+    // Allow environment variable overrides first
+    if (process.env.FFMPEG_PATH) this.ffmpegPath = process.env.FFMPEG_PATH;
+    if (process.env.FFPROBE_PATH) this.ffprobePath = process.env.FFPROBE_PATH;
+    if (process.env.WHISPER_CLI_PATH) this.whisperExecutablePath = process.env.WHISPER_CLI_PATH;
+    if (process.env.WHISPER_MODEL_PATH) this.whisperModelPath = process.env.WHISPER_MODEL_PATH;
+
+    const resourcesPath = (process as any).resourcesPath || process.cwd();
+
+    // Fallback candidates for ffmpeg/ffprobe on macOS
+    const ffmpegCandidates = [
+      this.ffmpegPath,
+      '/opt/homebrew/bin/ffmpeg',
+      '/usr/local/bin/ffmpeg',
+      '/usr/bin/ffmpeg',
+      path.join(resourcesPath, 'ffmpeg'),
+      path.join(resourcesPath, 'bin', 'ffmpeg')
+    ];
+    const ffprobeCandidates = [
+      this.ffprobePath,
+      '/opt/homebrew/bin/ffprobe',
+      '/usr/local/bin/ffprobe',
+      '/usr/bin/ffprobe',
+      path.join(resourcesPath, 'ffprobe'),
+      path.join(resourcesPath, 'bin', 'ffprobe')
+    ];
+
+    this.ffmpegPath = this.pickFirstExisting(ffmpegCandidates, 'ffmpeg');
+    this.ffprobePath = this.pickFirstExisting(ffprobeCandidates, 'ffprobe');
+
+    // Whisper CLI candidates
+    const whisperCandidates = [
+      this.whisperExecutablePath,
+      path.join(resourcesPath, 'whisper-cli'),
+      path.join(resourcesPath, 'bin', 'whisper-cli'),
+      'whisper-cli',
+      'whisper'
+    ];
+    this.whisperExecutablePath = this.pickFirstExisting(whisperCandidates, 'whisper-cli', false);
+
+    // Whisper model path candidates (bundle under assets/models if provided)
+    const modelCandidates = [
+      this.whisperModelPath,
+      path.join(resourcesPath, 'assets', 'models', 'ggml-base.en.bin'),
+      path.join(app.getPath('userData'), 'models', 'ggml-base.en.bin')
+    ];
+    this.whisperModelPath = this.pickFirstExisting(modelCandidates, 'whisper model', false);
+  }
+
+  private pickFirstExisting(candidates: string[], label: string, mustExist: boolean = true): string {
+    for (const candidate of candidates) {
+      try {
+        if (!candidate) continue;
+        // If path contains a slash, check existence; otherwise trust PATH resolution at spawn time
+        if (candidate.includes(path.sep)) {
+          if (fs.existsSync(candidate)) return candidate;
+        } else {
+          // Simple heuristic: allow bare command name; spawn will resolve via PATH
+          return candidate;
+        }
+      } catch {}
+    }
+    if (mustExist) {
+      console.warn(`⚠️ [AUDIO] No ${label} found in candidates: ${candidates.join(', ')}`);
+    }
+    // Return first as fallback (may be bare command)
+    return candidates[0];
   }
 
   /**
@@ -106,19 +192,19 @@ export class AudioService {
   private async checkDependencies(): Promise<void> {
     return new Promise((resolve, reject) => {
       // Check if FFmpeg is available
-      const ffmpeg = spawn('ffmpeg', ['-version']);
+      const ffmpeg = spawn(this.ffmpegPath, ['-version']);
       
       ffmpeg.on('close', (code) => {
         if (code === 0) {
           console.log('FFmpeg is available');
           // Check whisper executable
-          const whisperProc = spawn(AUDIO_CONFIG.WHISPER_EXECUTABLE, ['--help']);
+          const whisperProc = spawn(this.whisperExecutablePath, ['--help']);
           whisperProc.on('close', (wCode) => {
             if (wCode === 0) {
               console.log('whisper-cli binary available');
               // Check model path
-              if (!fs.existsSync(AUDIO_CONFIG.MODEL_PATH)) {
-                reject(new Error(`Whisper model not found at ${AUDIO_CONFIG.MODEL_PATH}`));
+              if (!this.whisperModelPath || !fs.existsSync(this.whisperModelPath)) {
+                reject(new Error(`Whisper model not found at ${this.whisperModelPath}. Configure WHISPER_MODEL_PATH or place model under assets/models`));
               } else {
                 resolve();
               }
@@ -130,7 +216,7 @@ export class AudioService {
             reject(new Error(`whisper-cli check failed: ${err.message}`));
           });
         } else {
-          reject(new Error('FFmpeg is not installed or not in PATH'));
+          reject(new Error(`FFmpeg is not installed or not accessible at ${this.ffmpegPath}`));
         }
       });
       
@@ -146,7 +232,7 @@ export class AudioService {
   private async checkAudioDevices(): Promise<void> {
     return new Promise((resolve, reject) => {
       // List audio devices using FFmpeg
-      const ffmpeg = spawn('ffmpeg', ['-f', 'avfoundation', '-list_devices', 'true', '-i', '']);
+      const ffmpeg = spawn(this.ffmpegPath, ['-f', 'avfoundation', '-list_devices', 'true', '-i', '']);
       
       let output = '';
       ffmpeg.stderr.on('data', (data) => {
@@ -211,7 +297,7 @@ export class AudioService {
       console.log(`🎤 [AUDIO] Output file: ${outputFile}`);
       console.log(`🎤 [AUDIO] Temp directory: ${this.tempDir}`);
       
-      const ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
+      const ffmpegProcess = spawn(this.ffmpegPath, ffmpegArgs);
       recording.process = ffmpegProcess;
       recording.isActive = true;
 
@@ -580,7 +666,7 @@ export class AudioService {
    */
   private async getAudioDuration(inputFile: string): Promise<number> {
     return new Promise((resolve, reject) => {
-      const probeFfmpeg = spawn('ffprobe', [
+      const probeFfmpeg = spawn(this.ffprobePath, [
         '-v', 'quiet',
         '-show_entries', 'format=duration',
         '-of', 'csv=p=0',
@@ -637,7 +723,7 @@ export class AudioService {
         outputFile
       ];
       
-      const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+      const ffmpeg = spawn(this.ffmpegPath, ffmpegArgs);
       
       ffmpeg.stderr.on('data', (data) => {
         // FFmpeg outputs progress info to stderr, which is normal
@@ -736,7 +822,7 @@ export class AudioService {
       
       // Invoke whisper-cli for transcription
       const whisperArgs = [
-        '--model', AUDIO_CONFIG.MODEL_PATH,
+        '--model', this.whisperModelPath,
         '--output-txt',
         '--no-prints',
         '--language', 'auto',
@@ -747,7 +833,7 @@ export class AudioService {
       console.log(`🎤 [WHISPER] Running whisper-cli with args:`, whisperArgs.join(' '));
 
       const transcriptText: string = await new Promise((resolve, reject) => {
-        const proc = spawn(AUDIO_CONFIG.WHISPER_EXECUTABLE, whisperArgs);
+        const proc = spawn(this.whisperExecutablePath, whisperArgs);
 
         let stdout = '';
         let stderr = '';

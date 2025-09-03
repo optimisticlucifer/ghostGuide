@@ -231,10 +231,11 @@ class ChatService {
      */
     buildConversationHistory(sessionId, systemPrompt) {
         const messages = [];
-        // Add system prompt
+        // Add system prompt with development guidelines appended
+        const systemWithGuidelines = `${systemPrompt}\n\n${this.getDevelopmentGuidelines()}`.trim();
         messages.push({
             role: 'system',
-            content: systemPrompt
+            content: systemWithGuidelines
         });
         // Get recent chat history
         const chatHistory = this.sessionManager.getChatHistory(sessionId);
@@ -251,6 +252,19 @@ class ChatService {
             }
         }
         return messages;
+    }
+    // Additional formatting instruction to ensure multi-file code solutions for common stacks
+    getDevelopmentGuidelines() {
+        return [
+            'FORMAT INSTRUCTION — Development Questions:',
+            'If the user asks for code or a runnable solution for Node.js, React, Flask, Django, or FastAPI, provide a complete, runnable answer that includes ALL required files, not just snippets.',
+            'Always include:',
+            '- A short project file tree listing (paths and filenames).',
+            '- Full contents for each required file (entry points, routes, components, config, package.json/requirements.txt, tsconfig, webpack/vite config if applicable).',
+            '- Any environment variables as placeholders (do NOT include secrets).',
+            '- Commands to install and run the project (npm/yarn/pip, and start scripts).',
+            'Prefer minimal, production-ready defaults. Do not omit boilerplate if it is required to run the app.'
+        ].join('\n');
     }
     /**
      * Call OpenAI API

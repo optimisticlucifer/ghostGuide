@@ -302,6 +302,9 @@ For detailed technical documentation, see [docs/UpdateService.md](docs/UpdateSer
 
 ### OCR Integration with AI Analysis
 
+Renderer security:
+- AI responses are safely rendered; any HTML/JSX in responses is escaped and shown as code blocks when fenced (```), preventing unintended execution in chat bubbles.
+
 The OCRService provides real-time text extraction from images with intelligent AI analysis capabilities:
 
 #### Core Features
@@ -383,6 +386,11 @@ Interview Tips:
 ```
 
 ### AI Chat Integration
+
+Note on development questions (Node/React/Flask/Django/FastAPI):
+- The assistant is instructed to return complete, runnable multi-file answers when code is requested.
+- Responses include a concise file tree, full contents of required files (entry points, routes/components, package.json/requirements.txt, configs), placeholder env vars, and install/run commands.
+- Boilerplate is not omitted if required to run.
 
 The ChatService provides intelligent assistance through OpenAI GPT-3.5-turbo with the following capabilities:
 
@@ -815,6 +823,18 @@ npm run release
 For detailed build system documentation, see [build/INSTALLER-README.md](build/INSTALLER-README.md).
 
 ## Development
+
+### Hotkeys
+
+- Cmd+G: Toggle main window
+- Cmd+H: Toggle visibility of all session windows
+- Cmd+S: When Auto Recorder is active, send current transcription to AI (waits for pending segment)
+- Cmd+Q: Perform screenshot analysis with OCR and send to AI (does NOT quit)
+- Cmd+Up / Cmd+Down: Scroll the active session's answer pane
+
+Stealth overlay behavior:
+- Session windows are always-on-top across spaces, including over full-screen apps.
+- Session windows run in non-focusable mode to avoid bringing the app to the foreground when clicked; toolbar buttons still work without switching spaces.
 
 ### Quick Start
 

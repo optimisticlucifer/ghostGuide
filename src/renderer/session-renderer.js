@@ -253,6 +253,20 @@ class SessionWindowRenderer {
         timestamp: result.timestamp 
       });
     });
+
+    // Handle scroll commands from global shortcuts
+    ipcRenderer.on('scroll-answer', (event, payload) => {
+      try {
+        const delta = typeof payload?.delta === 'number' ? payload.delta : 0;
+        if (!this.chatMessages) return;
+        const current = this.chatMessages.scrollTop;
+        const max = this.chatMessages.scrollHeight - this.chatMessages.clientHeight;
+        const next = Math.min(Math.max(0, current + delta), Math.max(0, max));
+        this.chatMessages.scrollTop = next;
+      } catch (e) {
+        console.warn('Failed to scroll answer pane:', e);
+      }
+    });
     
     // Area Capture IPC listeners
     ipcRenderer.on('area-captured', (event, result) => {
@@ -499,19 +513,10 @@ class SessionWindowRenderer {
     messageDiv.className = `message ${role}`;
     
     const contentDiv = document.createElement('div');
-    
-    // Handle special formatting for RAG enhanced messages or markdown-like content
-    if (metadata.source === 'rag-enhanced-message' || content.includes('**') || content.includes('\n\n')) {
-      // Convert basic markdown to HTML for better formatting
-      let formattedContent = content
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold text
-        .replace(/\n\n/g, '<br><br>') // Double newlines to double line breaks
-        .replace(/\n/g, '<br>'); // Single newlines to line breaks
-      
-      contentDiv.innerHTML = formattedContent;
-    } else {
-      contentDiv.textContent = content;
-    }
+
+    // Always render AI/user text safely: escape HTML/JSX and format markdown/code blocks
+    const safeHTML = this._formatMarkdownToSafeHTML(String(content || ''));
+    contentDiv.innerHTML = safeHTML;
     
     messageDiv.appendChild(contentDiv);
     
@@ -529,6 +534,66 @@ class SessionWindowRenderer {
     
     this.chatMessages.appendChild(messageDiv);
     this.scrollToBottom();
+  }
+
+  // Escape unsafe characters
+  _escapeHTML(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // Minimal markdown formatter with HTML escaping and code block support
+  _formatMarkdownToSafeHTML(text) {
+    try {
+      const segments = [];
+      const fenceRegex = /```([a-zA-Z0-9_-]+)?\n([\s\S]*?)```/g;
+      let lastIndex = 0;
+      let match;
+
+      while ((match = fenceRegex.exec(text)) !== null) {
+        const before = text.slice(lastIndex, match.index);
+        if (before) segments.push({ type: 'text', content: before });
+        const lang = match[1] ? match[1].toLowerCase() : '';
+        const code = match[2] || '';
+        segments.push({ type: 'code', lang, content: code });
+        lastIndex = fenceRegex.lastIndex;
+      }
+
+      const after = text.slice(lastIndex);
+      if (after) segments.push({ type: 'text', content: after });
+
+      const htmlParts = segments.map(seg => {
+        if (seg.type === 'code') {
+          const escaped = this._escapeHTML(seg.content);
+          return `<pre class="code-block"><code class="language-${seg.lang}">${escaped}</code></pre>`;
+        } else {
+          // Process inline code first
+          let escaped = this._escapeHTML(seg.content);
+          // Inline code: `code`
+          escaped = escaped.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+          // Bold: **text**
+          escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+          // Italic: *text*
+          escaped = escaped.replace(/(^|\s)\*(?!\s)([^*]+?)\*(?=\s|[.,!?]|$)/g, '$1<em>$2</em>');
+          // Headings (very basic) e.g., ## Title
+          escaped = escaped.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');
+          escaped = escaped.replace(/^##\s+(.*)$/gm, '<h2>$1</h2>');
+          escaped = escaped.replace(/^#\s+(.*)$/gm, '<h1>$1</h1>');
+          // Line breaks
+          escaped = escaped.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+          return `<div class="text-segment">${escaped}</div>`;
+        }
+      });
+
+      return htmlParts.join('');
+    } catch (e) {
+      // Fallback: fully escape
+      return `<div class="text-segment">${this._escapeHTML(text)}</div>`;
+    }
   }
 
   showLoading() {

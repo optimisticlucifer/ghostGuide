@@ -48,8 +48,8 @@
       "LSUIElement": true,
       "LSBackgroundOnly": false,
       "CFBundleExecutable": "systemAssistance",
-      "CFBundleName": "systemAssistance",
-      "CFBundleDisplayName": "Interview Assistant"
+      "CFBundleName": "system Assistant",
+      "CFBundleDisplayName": "system Assistant"
     }
   },
   "win": {
