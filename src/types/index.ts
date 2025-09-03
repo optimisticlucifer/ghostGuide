@@ -80,6 +80,8 @@ export interface ChatMessage {
     ocrText?: string;
     ragContextUsed?: boolean;
     enhancedMessage?: string;
+    isInitialization?: boolean;
+    isCodeRequest?: boolean;
   };
 }
 

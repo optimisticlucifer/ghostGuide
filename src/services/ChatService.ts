@@ -77,42 +77,50 @@ export class ChatService {
       // Build conversation history
       const messages = this.buildConversationHistory(sessionId, systemPrompt);
       
-      // Search for relevant context from all enabled RAG sources
+      // 🎯 FIXED: Only use RAG for initialization messages or when explicitly enabled
+      // For regular chat messages, respect the user's RAG toggle settings
       const ragContextSources: string[] = [];
       
-      try {
-        // Get local RAG context if enabled
-        if (this.isLocalRAGEnabled(sessionId) && this.localRAGService) {
-          console.log(`📚 [CHAT] Searching local RAG for session ${sessionId} with query: "${message.substring(0, 50)}..."`);
-          const localResults = await this.localRAGService.getContextStrings(sessionId, message, 3);
-          if (localResults.length > 0) {
-            console.log(`✅ [CHAT] Found ${localResults.length} local RAG results`);
-            ragContextSources.push(...localResults);
-          } else {
-            console.log(`⚠️ [CHAT] No local RAG results found for session ${sessionId}`);
+      // Only search RAG if it's an initialization message OR if RAG is explicitly enabled
+      const shouldUseRAG = isInitialization || this.isLocalRAGEnabled(sessionId) || this.isGlobalRAGEnabled(sessionId);
+      
+      if (shouldUseRAG) {
+        try {
+          // Get local RAG context if enabled (or during initialization)
+          if ((isInitialization || this.isLocalRAGEnabled(sessionId)) && this.localRAGService) {
+            console.log(`📚 [CHAT] Searching local RAG for session ${sessionId} with query: "${message.substring(0, 50)}..."`);
+            const localResults = await this.localRAGService.getContextStrings(sessionId, message, 3);
+            if (localResults.length > 0) {
+              console.log(`✅ [CHAT] Found ${localResults.length} local RAG results`);
+              ragContextSources.push(...localResults);
+            } else {
+              console.log(`⚠️ [CHAT] No local RAG results found for session ${sessionId}`);
+            }
           }
-        }
-        
-        // Get global RAG context if enabled  
-        if (this.isGlobalRAGEnabled(sessionId) && this.globalRAGService) {
-          console.log(`🌍 [CHAT] Searching global RAG with query: "${message.substring(0, 50)}..."`);
-          const globalResults = await this.globalRAGService.getContextStrings(message, 3);
-          if (globalResults.length > 0) {
-            console.log(`✅ [CHAT] Found ${globalResults.length} global RAG results`);
-            ragContextSources.push(...globalResults);
-          } else {
-            console.log(`⚠️ [CHAT] No global RAG results found`);
+          
+          // Get global RAG context if enabled (or during initialization)
+          if ((isInitialization || this.isGlobalRAGEnabled(sessionId)) && this.globalRAGService) {
+            console.log(`🌍 [CHAT] Searching global RAG with query: "${message.substring(0, 50)}..."`);
+            const globalResults = await this.globalRAGService.getContextStrings(message, 3);
+            if (globalResults.length > 0) {
+              console.log(`✅ [CHAT] Found ${globalResults.length} global RAG results`);
+              ragContextSources.push(...globalResults);
+            } else {
+              console.log(`⚠️ [CHAT] No global RAG results found`);
+            }
           }
+          
+          // Fallback to original RAG service if others are not available (only during initialization)
+          if (isInitialization && ragContextSources.length === 0 && !this.isLocalRAGEnabled(sessionId) && !this.isGlobalRAGEnabled(sessionId)) {
+            const fallbackContext = await this.ragService.searchRelevantContent(message, sessionId);
+            ragContextSources.push(...fallbackContext);
+          }
+        } catch (error) {
+          console.warn('⚠️ [CHAT] RAG context retrieval failed:', error);
+          // Continue without RAG context
         }
-        
-        // Fallback to original RAG service if others are not available
-        if (ragContextSources.length === 0 && !this.isLocalRAGEnabled(sessionId) && !this.isGlobalRAGEnabled(sessionId)) {
-          const fallbackContext = await this.ragService.searchRelevantContent(message, sessionId);
-          ragContextSources.push(...fallbackContext);
-        }
-      } catch (error) {
-        console.warn('⚠️ [CHAT] RAG context retrieval failed:', error);
-        // Continue without RAG context
+      } else {
+        console.log(`🚫 [CHAT] RAG disabled for session ${sessionId} - using direct chat without context`);
       }
       
       // Enhance message with RAG context if available
@@ -143,7 +151,8 @@ export class ChatService {
         metadata: {
           action: ActionType.GENERAL,
           ragContextUsed,
-          enhancedMessage: ragContextUsed ? enhancedMessage : undefined
+          enhancedMessage: ragContextUsed ? enhancedMessage : undefined,
+          isInitialization
         }
       });
 
@@ -154,7 +163,8 @@ export class ChatService {
         content: response,
         timestamp,
         metadata: {
-          action: ActionType.GENERAL
+          action: ActionType.GENERAL,
+          isInitialization
         }
       });
 
@@ -231,7 +241,7 @@ export class ChatService {
   }
 
   /**
-   * Process audio transcript and get AI coaching - PERSISTENT CONTEXT
+   * Process audio transcript and get AI coaching - PERSISTENT CONTEXT with Enhanced Code Examples
    */
   async processTranscript(sessionId: string, transcript: string, source: AudioSource): Promise<string> {
     try {
@@ -250,12 +260,22 @@ export class ChatService {
         audioType = AudioPromptType.GENERAL_TRANSCRIPT;
       }
       
-      const coachingRequest = this.promptLibraryService.getAudioCoachingPrompt(
+      let coachingRequest = this.promptLibraryService.getAudioCoachingPrompt(
         audioType,
         session.profession,
         session.interviewType,
         transcript
       );
+      
+      // 🎯 ENHANCEMENT: Detect if transcript is asking for code/implementation and enhance the request
+      const codeKeywords = ['code', 'implement', 'write', 'create', 'build', 'develop', 'function', 'component', 'class', 'method', 'api', 'endpoint', 'route', 'database', 'query', 'algorithm', 'solution', 'program', 'script', 'application', 'website', 'app', 'button', 'form', 'login', 'authentication', 'react', 'node', 'python', 'javascript', 'typescript', 'html', 'css'];
+      const transcriptLower = transcript.toLowerCase();
+      const isCodeRequest = codeKeywords.some(keyword => transcriptLower.includes(keyword));
+      
+      if (isCodeRequest) {
+        console.log(`💻 [TRANSCRIPT] Detected code request in transcription, enhancing prompt...`);
+        coachingRequest += `\n\n🔧 ENHANCED INSTRUCTION FOR TRANSCRIPTION:\nSince this appears to be a request for code or implementation, please provide:\n1. Complete, runnable code examples with proper structure\n2. Step-by-step explanations for interview learning\n3. Best practices and common pitfalls to mention in interviews\n4. Related follow-up questions an interviewer might ask\n5. If it's a web development request, include all necessary files (HTML, CSS, JS, package.json, etc.)\n6. Installation and running instructions when applicable`;
+      }
 
       // ✅ CRITICAL: Save the transcript as a user message to maintain context
       const timestamp = new Date();
@@ -268,7 +288,8 @@ export class ChatService {
         timestamp,
         metadata: {
           action: ActionType.GENERAL,
-          source: source
+          source: source,
+          isCodeRequest
         }
       });
 
@@ -291,7 +312,8 @@ export class ChatService {
         timestamp: new Date(),
         metadata: {
           action: ActionType.GENERAL,
-          source: source
+          source: source,
+          isCodeRequest
         }
       });
 
@@ -529,11 +551,15 @@ export class ChatService {
   }
   
   /**
-   * Initialize RAG settings for a new session (both enabled by default)
+   * Initialize RAG settings for a new session (both DISABLED by default)
+   * RAG will only be used for the initial context message, then disabled
    */
   initializeSessionRAG(sessionId: string): void {
-    this.setGlobalRAGEnabled(sessionId, true);
-    this.setLocalRAGEnabled(sessionId, true);
+    // 🎯 FIXED: Start with RAG disabled by default
+    // RAG will be used only for initialization, then user can manually enable
+    this.setGlobalRAGEnabled(sessionId, false);
+    this.setLocalRAGEnabled(sessionId, false);
+    console.log(`🔧 [RAG] Initialized session ${sessionId} with RAG disabled by default`);
   }
   
   /**
