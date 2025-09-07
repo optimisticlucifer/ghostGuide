@@ -29,6 +29,37 @@
             cursor: text !important;
         }
         
+        /* Comprehensive cursor fixes for all window elements */
+        body, html {
+            cursor: default !important;
+        }
+        
+        .toolbar, .chat-container, .input-container, .status-bar,
+        .chat-messages, .message, .loading, .capture-actions,
+        .coordinate-input-form, .coordinate-form {
+            cursor: default !important;
+        }
+        
+        /* Prevent cursor changes on window edges and borders */
+        body:hover, html:hover {
+            cursor: default !important;
+        }
+        
+        /* Force default cursor on all divs and containers */
+        div, span, p, ul, li, h1, h2, h3, h4, h5, h6 {
+            cursor: default !important;
+        }
+        
+        /* Ensure resize handles and window edges don't change cursor */
+        *:hover:not(button):not(input):not(textarea):not(select):not(a) {
+            cursor: default !important;
+        }
+        
+        /* Prevent any resize cursors */
+        * {
+            resize: none !important;
+        }
+        
         .toolbar {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 8px;

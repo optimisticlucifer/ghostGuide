@@ -17,7 +17,10 @@ export class WindowManager {
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false
-      }
+      },
+      // WINDOW MANAGER MAIN WINDOW OPACITY SETTING: Change the value below (0.0 to 1.0) to adjust opacity
+      // 1.0 = fully opaque (default), 0.8 = 80% opacity, 0.5 = 50% opacity
+      opacity: 1.0  // Default fully opaque for WindowManager main window
     });
 
     // Configure stealth properties
@@ -50,7 +53,10 @@ export class WindowManager {
         nodeIntegration: true,
         contextIsolation: false,
         additionalArguments: [`--session-id=${sessionId}`]
-      }
+      },
+      // WINDOW MANAGER SESSION WINDOW OPACITY SETTING: Change the value below (0.0 to 1.0) to adjust opacity
+      // 1.0 = fully opaque (default), 0.9 = 90% opacity, 0.8 = 80% opacity
+      opacity: 1.0  // Default fully opaque for WindowManager session window
     });
 
     // Configure stealth properties
@@ -110,7 +116,10 @@ export class WindowManager {
       // Additional stealth properties
       titleBarStyle: 'default',
       vibrancy: 'under-window',
-      visualEffectState: 'inactive'
+      visualEffectState: 'inactive',
+      // SETTINGS WINDOW OPACITY SETTING: Change the value below (0.0 to 1.0) to adjust settings window opacity
+      // 1.0 = fully opaque (default for settings), 0.9 = 90% opacity, 0.8 = 80% opacity
+      opacity: 1.0  // Default fully opaque for settings window
     });
     
     // Load settings window HTML

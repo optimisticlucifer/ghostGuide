@@ -148,8 +148,10 @@ export class ApplicationController {
       titleBarStyle: 'hidden',
       vibrancy: 'under-window',
       visualEffectState: 'inactive',
-      opacity: 1,
-      acceptFirstMouse: true
+      acceptFirstMouse: true,
+      // MAIN WINDOW OPACITY SETTING: Change the value below (0.0 to 1.0) to adjust main window opacity
+      // 1.0 = fully opaque (default for main window), 0.8 = 80% opacity, 0.5 = 50% opacity
+      opacity: 1.0  // Default fully opaque for main window
     });
 
     // Ensure always-on-top across full-screen spaces
@@ -213,7 +215,8 @@ export class ApplicationController {
         nodeIntegration: true,
         contextIsolation: false,
         backgroundThrottling: false,
-        offscreen: false
+        offscreen: false,
+        disableHtmlFullscreenWindowResize: true
       },
       title: `${config.profession} - ${config.interviewType}`,
       resizable: true,
@@ -231,7 +234,11 @@ export class ApplicationController {
       hiddenInMissionControl: true,
       fullscreenable: false,
       titleBarStyle: 'default',
-      acceptFirstMouse: true
+      acceptFirstMouse: true,
+      useContentSize: true,
+      // SESSION WINDOW OPACITY SETTING: Change the value below (0.0 to 1.0) to adjust session window opacity
+      // 1.0 = fully opaque (default for session), 0.9 = 90% opacity, 0.8 = 80% opacity
+      opacity: 1.0  // Default fully opaque for session window
     });
 
     // Ensure always-on-top across full-screen spaces
@@ -325,7 +332,7 @@ export class ApplicationController {
       },
       title: `📝 Notepad - ${sessionId}`,
       resizable: true,
-      alwaysOnTop: false,
+      alwaysOnTop: true,  // Keep notepad always on top
       skipTaskbar: false,
       show: true,
       frame: true,
@@ -339,8 +346,19 @@ export class ApplicationController {
       hiddenInMissionControl: false,
       fullscreenable: true,
       titleBarStyle: 'default',
-      acceptFirstMouse: true
+      acceptFirstMouse: true,
+      // OPACITY SETTING: Change the value below (0.0 to 1.0) to adjust notepad window opacity
+      // 0.5 = 50% opacity (semi-transparent), 1.0 = fully opaque, 0.0 = fully transparent
+      opacity: 0.7  // Default 50% opacity for notepad window
     });
+    
+    // Ensure always-on-top across full-screen spaces (similar to session windows)
+    try {
+      notepadWindow.setAlwaysOnTop(true, 'screen-saver');
+      notepadWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    } catch (e) {
+      this.writeLog(`⚠️ [APP] Failed to apply full-screen visibility settings to notepad window: ${e.message}`);
+    }
     
     // Load notepad window content
     this.loadNotepadWindowContent(notepadWindow, sessionId);

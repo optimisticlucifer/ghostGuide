@@ -125,18 +125,20 @@ class NotepadRenderer {
   async initializeMarkdown() {
     try {
       // Import marked for markdown parsing
-      const { marked } = require('marked');
+      const marked = require('marked');
       this.marked = marked;
       
       // Configure marked options
-      this.marked.setOptions({
-        highlight: function(code, lang) {
-          // Basic syntax highlighting could be added here
-          return code;
-        },
-        breaks: true,
-        gfm: true
-      });
+      if (this.marked.setOptions) {
+        this.marked.setOptions({
+          highlight: function(code, lang) {
+            // Basic syntax highlighting could be added here
+            return code;
+          },
+          breaks: true,
+          gfm: true
+        });
+      }
       
       // Initial render
       this.updatePreview();
@@ -146,6 +148,7 @@ class NotepadRenderer {
       console.error('📝 [NOTEPAD] Failed to initialize markdown:', error);
       // Fallback to basic text rendering
       this.marked = null;
+      this.updatePreview();
     }
   }
 
@@ -218,16 +221,86 @@ class NotepadRenderer {
     
     if (this.marked) {
       try {
-        const html = this.marked.parse(content);
+        // Use marked to parse markdown
+        let html;
+        if (typeof this.marked.parse === 'function') {
+          html = this.marked.parse(content);
+        } else if (typeof this.marked === 'function') {
+          html = this.marked(content);
+        } else {
+          throw new Error('marked library not properly loaded');
+        }
+        
         this.preview.innerHTML = html;
+        console.log('📝 [NOTEPAD] Markdown rendered successfully');
       } catch (error) {
         console.error('📝 [NOTEPAD] Markdown parsing error:', error);
-        this.preview.textContent = content;
+        // Fallback to basic markdown-like rendering
+        this.renderBasicMarkdown(content);
       }
     } else {
-      // Fallback: simple text with line breaks
-      this.preview.innerHTML = content.replace(/\n/g, '<br>');
+      // Fallback: basic markdown-like rendering
+      this.renderBasicMarkdown(content);
     }
+  }
+  
+  renderBasicMarkdown(content) {
+    console.log('📝 [NOTEPAD] Using fallback markdown rendering');
+    
+    // Basic markdown rendering without external library
+    let html = content;
+    
+    // Convert line breaks
+    html = html.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    
+    // Headers
+    html = html.replace(/^### (.*$)/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.*$)/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.*$)/gm, '<h1>$1</h1>');
+    
+    // Bold and italic
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    
+    // Code blocks
+    html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+    
+    // Images - Handle both regular images and data URLs
+    html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
+      // If it's a data URL, use it directly
+      if (src.startsWith('data:')) {
+        return `<img src="${src}" alt="${alt}" style="max-width: 100%; height: auto; margin: 8px 0;">`;
+      } else {
+        return `<img src="${src}" alt="${alt}" style="max-width: 100%; height: auto; margin: 8px 0;">`;
+      }
+    });
+    
+    // Links
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    
+    // Lists
+    html = html.replace(/^\* (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+    
+    // Line breaks and paragraphs
+    html = html.replace(/\n\n/g, '</p><p>');
+    html = html.replace(/\n/g, '<br>');
+    html = '<p>' + html + '</p>';
+    
+    // Clean up empty paragraphs
+    html = html.replace(/<p><\/p>/g, '');
+    html = html.replace(/<p>(<h[1-6])/g, '$1');
+    html = html.replace(/(<\/h[1-6]>)<\/p>/g, '$1');
+    html = html.replace(/<p>(<ul>)/g, '$1');
+    html = html.replace(/(<\/ul>)<\/p>/g, '$1');
+    html = html.replace(/<p>(<pre>)/g, '$1');
+    html = html.replace(/(<\/pre>)<\/p>/g, '$1');
+    
+    this.preview.innerHTML = html;
   }
 
   updateStatus(text) {
