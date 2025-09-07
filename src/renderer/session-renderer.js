@@ -25,13 +25,39 @@ class SessionWindowRenderer {
   }
 
   getSessionId() {
-    // Check for global session ID variable first (set by ApplicationController)
+    // Method 1: Check for global session ID variable first (set by ApplicationController)
     if (window.GHOST_GUIDE_SESSION_ID) {
       console.log('🎯 [SESSION] Using global session ID:', window.GHOST_GUIDE_SESSION_ID);
       return window.GHOST_GUIDE_SESSION_ID;
     }
     
-    // Fallback: Extract session ID from command line arguments  
+    // Method 2: Check URL parameters
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlSessionId = urlParams.get('sessionId');
+      if (urlSessionId) {
+        console.log('🎯 [SESSION] Using URL parameter session ID:', urlSessionId);
+        // Also set the global variable for consistency
+        window.GHOST_GUIDE_SESSION_ID = urlSessionId;
+        
+        // Parse and set config if available
+        const configParam = urlParams.get('config');
+        if (configParam) {
+          try {
+            window.GHOST_GUIDE_SESSION_CONFIG = JSON.parse(configParam);
+            console.log('🎯 [SESSION] Session config from URL:', window.GHOST_GUIDE_SESSION_CONFIG);
+          } catch (error) {
+            console.warn('🎯 [SESSION] Failed to parse config from URL:', error);
+          }
+        }
+        
+        return urlSessionId;
+      }
+    } catch (error) {
+      console.warn('🎯 [SESSION] Failed to parse URL parameters:', error);
+    }
+    
+    // Method 3: Fallback to command line arguments  
     const args = process.argv;
     const sessionArg = args.find(arg => arg.startsWith('--session-id='));
     const cmdSessionId = sessionArg ? sessionArg.split('=')[1] : 'unknown';
@@ -966,16 +992,33 @@ class SessionWindowRenderer {
 
 // Initialize when DOM is loaded AND global session ID is available
 document.addEventListener('DOMContentLoaded', () => {
+  console.log('🎯 [SESSION] DOM loaded, waiting for session ID...');
+  
   // Wait for the global session ID to be available
   const waitForSessionId = () => {
     if (window.GHOST_GUIDE_SESSION_ID) {
-      console.log('🎯 [SESSION] Global session ID is available, initializing renderer');
-      new SessionWindowRenderer();
+      console.log('🎯 [SESSION] Global session ID is available:', window.GHOST_GUIDE_SESSION_ID);
+      try {
+        new SessionWindowRenderer();
+      } catch (error) {
+        console.error('🎯 [SESSION] Error initializing renderer:', error);
+        // Show error in the UI
+        document.body.innerHTML = `<div style="padding: 20px; text-align: center; color: red;">Error initializing session: ${error.message}</div>`;
+      }
     } else {
       console.log('🎯 [SESSION] Waiting for global session ID...');
       setTimeout(waitForSessionId, 50); // Check every 50ms
     }
   };
   
+  // Start waiting immediately
   waitForSessionId();
+  
+  // Also set up a fallback timeout after 5 seconds
+  setTimeout(() => {
+    if (!window.GHOST_GUIDE_SESSION_ID) {
+      console.error('🎯 [SESSION] Timeout waiting for session ID, showing error');
+      document.body.innerHTML = `<div style="padding: 20px; text-align: center; color: red;">Error: Session ID not provided within timeout period</div>`;
+    }
+  }, 5000);
 });

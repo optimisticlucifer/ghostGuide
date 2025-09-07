@@ -173,6 +173,26 @@ export class ApplicationController {
       }
     }
 
+    // Ensure main window gets focus, especially when launched from Finder
+    setTimeout(() => {
+      try {
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+          this.mainWindow.show();
+          this.mainWindow.focus();
+          this.mainWindow.moveTop();
+          
+          // On macOS, also activate the app to ensure it comes to foreground
+          if (process.platform === 'darwin') {
+            app.focus({ steal: true });
+          }
+          
+          this.writeLog('🪟 [APP] Main window brought to foreground');
+        }
+      } catch (error) {
+        this.writeLog(`⚠️ [APP] Failed to focus main window: ${(error as Error).message}`);
+      }
+    }, 200);
+
     this.writeLog('✅ [APP] Main window created successfully');
     return this.mainWindow;
   }
@@ -253,6 +273,20 @@ export class ApplicationController {
       this.writeLog(`⚠️ [APP] Failed to initialize Local RAG database for session ${sessionId}: ${(error as Error).message}`);
     }
 
+    // Ensure proper window focus and visibility
+    setTimeout(() => {
+      try {
+        if (!sessionWindow.isDestroyed()) {
+          sessionWindow.show();
+          sessionWindow.focus();
+          sessionWindow.moveTop();
+          this.writeLog(`🪟 [APP] Session window focused and moved to top: ${sessionId}`);
+        }
+      } catch (error) {
+        this.writeLog(`⚠️ [APP] Failed to focus session window ${sessionId}: ${(error as Error).message}`);
+      }
+    }, 100);
+
     this.writeLog(`✅ [APP] Session window created successfully: ${sessionId}`);
     return sessionWindow;
   }
@@ -319,6 +353,16 @@ export class ApplicationController {
     this.writeLog(`📁 [APP] Logs directory: ${logsDir}`);
     this.writeLog(`🖥️ [APP] Platform: ${process.platform}`);
     this.writeLog(`🔢 [APP] Node version: ${process.version}`);
+    
+    // Log launch context to identify Finder vs terminal launch
+    const launchContext = {
+      TERM: process.env.TERM || 'none',
+      TERM_PROGRAM: process.env.TERM_PROGRAM || 'none',
+      PWD: process.env.PWD || 'none',
+      isFromTerminal: !!(process.env.TERM || process.env.TERM_PROGRAM),
+      parentPID: process.ppid
+    };
+    this.writeLog(`🚀 [APP] Launch context: ${JSON.stringify(launchContext)}`);
   }
 
   private writeLog(message: string): void {
@@ -865,6 +909,41 @@ export class ApplicationController {
   }
 
   private setupApplicationEvents(): void {
+    // Request single instance lock to prevent multiple app instances
+    // Apply to all platforms including macOS
+    const gotTheLock = app.requestSingleInstanceLock();
+
+    if (!gotTheLock) {
+      // Another instance is already running, quit this one
+      this.writeLog('🔒 [APP] Another instance is already running, quitting this instance');
+      app.quit();
+      return;
+    }
+
+    // Handle second instance attempts - focus existing window
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+      this.writeLog('🔒 [APP] Second instance detected, focusing main window');
+      
+      // Focus the main window if it exists
+      if (this.mainWindow) {
+        if (this.mainWindow.isMinimized()) {
+          this.mainWindow.restore();
+        }
+        this.mainWindow.focus();
+        this.mainWindow.show();
+        
+        // On macOS, also try to bring app to foreground
+        if (process.platform === 'darwin') {
+          app.focus({ steal: true });
+        }
+      } else {
+        // Create main window if it doesn't exist
+        this.createMainWindow();
+      }
+    });
+    
+    this.writeLog('🔒 [APP] Single instance lock acquired successfully');
+
     app.whenReady().then(() => {
       this.initialize();
     });
@@ -883,6 +962,10 @@ export class ApplicationController {
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         this.createMainWindow();
+      } else if (this.mainWindow) {
+        // Show and focus the main window on macOS dock click
+        this.mainWindow.show();
+        this.mainWindow.focus();
       }
     });
   }
@@ -1184,16 +1267,37 @@ export class ApplicationController {
     // Load the external session.html file with the session ID passed as a global variable
     const sessionHtmlPath = path.join(__dirname, '..', 'renderer', 'session.html');
     
-    // Load the session.html file
-    window.loadFile(sessionHtmlPath);
+    this.writeLog(`🎯 [SESSION] Loading session window content for ${sessionId}`);
     
-    // Set the session ID as a global variable once DOM is ready
+    // Method 1: Set session variables via URL parameters
+    // This ensures the session data is available immediately when the page loads
+    const sessionUrl = new URL(`file://${sessionHtmlPath}`);
+    sessionUrl.searchParams.set('sessionId', sessionId);
+    sessionUrl.searchParams.set('config', JSON.stringify(config));
+    
+    // Load the session.html file with parameters
+    window.loadURL(sessionUrl.toString());
+    
+    // Method 2 (Backup): Set variables after DOM ready
     window.webContents.once('dom-ready', () => {
+      this.writeLog(`🎯 [SESSION] DOM ready for session ${sessionId}, setting backup variables`);
+      
       window.webContents.executeJavaScript(`
-        // Set global session ID variable that the renderer can access
-        window.GHOST_GUIDE_SESSION_ID = '${sessionId}';
-        console.log('🎯 [SESSION] Session ID set to:', '${sessionId}');
-      `);
+        try {
+          // Set global session ID variable as backup
+          if (!window.GHOST_GUIDE_SESSION_ID) {
+            window.GHOST_GUIDE_SESSION_ID = '${sessionId}';
+            window.GHOST_GUIDE_SESSION_CONFIG = ${JSON.stringify(config)};
+            console.log('🎯 [SESSION] Session variables set as backup after DOM ready:', '${sessionId}');
+          } else {
+            console.log('🎯 [SESSION] Session variables already exist, skipping backup:', window.GHOST_GUIDE_SESSION_ID);
+          }
+        } catch (error) {
+          console.error('🎯 [SESSION] Failed to set session variables:', error);
+        }
+      `).catch((error) => {
+        this.writeLog(`⚠️ [SESSION] Failed to set session variables as backup: ${error.message}`);
+      });
     });
     
     // OLD INLINE HTML CODE (keeping as fallback commented out):
