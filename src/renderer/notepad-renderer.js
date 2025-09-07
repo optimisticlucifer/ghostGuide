@@ -262,11 +262,21 @@ class NotepadRenderer {
     html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
     
-    // Inline code
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // Inline code - preserve spacing
+    html = html.replace(/`([^`]+)`/g, (match, code) => {
+      return `<code>${this.escapeHtml(code)}</code>`;
+    });
     
-    // Code blocks
-    html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+    // Code blocks - preserve all whitespace and formatting
+    html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
+      // Preserve exact formatting and whitespace
+      return `<pre><code class="language-${lang || 'text'}">${this.escapeHtml(code)}</code></pre>`;
+    });
+    
+    // Simple code blocks without language specification
+    html = html.replace(/```([\s\S]*?)```/g, (match, code) => {
+      return `<pre><code>${this.escapeHtml(code)}</code></pre>`;
+    });
     
     // Images - Handle both regular images and data URLs
     html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
@@ -301,6 +311,12 @@ class NotepadRenderer {
     html = html.replace(/(<\/pre>)<\/p>/g, '$1');
     
     this.preview.innerHTML = html;
+  }
+  
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   updateStatus(text) {
