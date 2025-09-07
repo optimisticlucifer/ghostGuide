@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Interview Notepad</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background: #fafafa;
+            -webkit-app-region: no-drag;
+            
+            /* Prevent cursor changes during window resize */
+            cursor: default !important;
+        }
+        
+        *, *:hover, *:focus, *:active {
+            cursor: default !important;
+        }
+        
+        button, .toolbar button {
+            cursor: pointer !important;
+        }
+        
+        input, textarea, select {
+            cursor: text !important;
+        }
+        
+        .toolbar {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            padding: 8px;
+            display: flex;
+            gap: 8px;
+            border-bottom: 1px solid #ddd;
+            flex-wrap: wrap;
+            -webkit-app-region: drag;
+            align-items: center;
+        }
+        
+        .toolbar h1 {
+            margin: 0;
+            font-size: 14px;
+            color: white;
+            font-weight: 600;
+            flex: 1;
+        }
+        
+        .toolbar button {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.9);
+            cursor: pointer !important;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s;
+            -webkit-app-region: no-drag;
+        }
+        
+        .toolbar button:hover {
+            background: white;
+            transform: translateY(-1px);
+        }
+        
+        .toolbar button.active {
+            background: rgba(255,255,255,1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .content-container {
+            flex: 1;
+            display: flex;
+            min-height: 0;
+        }
+        
+        .editor-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #ddd;
+            background: white;
+        }
+        
+        .editor-toolbar {
+            padding: 8px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #ddd;
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .editor {
+            flex: 1;
+            padding: 16px;
+            border: none;
+            outline: none;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            resize: none;
+            background: white;
+            cursor: text !important;
+        }
+        
+        .preview-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: white;
+        }
+        
+        .preview-toolbar {
+            padding: 8px 16px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #ddd;
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+        }
+        
+        .preview-content {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+            background: white;
+        }
+        
+        .preview-content h1 { font-size: 1.8em; margin-top: 0; }
+        .preview-content h2 { font-size: 1.5em; }
+        .preview-content h3 { font-size: 1.2em; }
+        .preview-content h4 { font-size: 1.1em; }
+        .preview-content h5 { font-size: 1em; }
+        .preview-content h6 { font-size: 0.9em; }
+        
+        .preview-content pre {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 12px;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+        }
+        
+        .preview-content code {
+            background: #f8f9fa;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 85%;
+        }
+        
+        .preview-content pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        .preview-content blockquote {
+            border-left: 4px solid #28a745;
+            margin: 16px 0;
+            padding: 8px 16px;
+            background: #f8f9fa;
+            font-style: italic;
+        }
+        
+        .preview-content table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 16px 0;
+        }
+        
+        .preview-content th,
+        .preview-content td {
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            text-align: left;
+        }
+        
+        .preview-content th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+        
+        .preview-content img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin: 8px 0;
+        }
+        
+        .status-bar {
+            background: #f8f9fa;
+            padding: 6px 16px;
+            font-size: 11px;
+            border-top: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #666;
+        }
+        
+        .file-input {
+            display: none;
+        }
+        
+        /* Single panel mode */
+        .content-container.editor-only .preview-panel {
+            display: none;
+        }
+        
+        .content-container.preview-only .editor-panel {
+            display: none;
+        }
+        
+        .content-container.editor-only .editor-panel,
+        .content-container.preview-only .preview-panel {
+            border-right: none;
+        }
+        
+        /* Drag and drop styles */
+        .editor.drag-over {
+            background: rgba(40, 167, 69, 0.1);
+            border: 2px dashed #28a745;
+        }
+        
+        /* Toast notification */
+        .toast {
+            position: fixed;
+            top: 50px;
+            right: 20px;
+            background: #28a745;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            z-index: 1000;
+        }
+        
+        .toast.show {
+            transform: translateX(0);
+        }
+        
+        .toast.error {
+            background: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <h1>📝 Interview Notepad</h1>
+        <button id="newFile" title="New File">📄 New</button>
+        <button id="openFile" title="Open File">📁 Open</button>
+        <button id="saveFile" title="Save File">💾 Save</button>
+        <button id="insertImage" title="Insert Image">🖼️ Image</button>
+        <button id="viewMode" title="Toggle View Mode">👁️ Split</button>
+        <button id="closeNotepad" title="Close Notepad">❌</button>
+    </div>
+    
+    <div class="content-container" id="contentContainer">
+        <div class="editor-panel">
+            <div class="editor-toolbar">
+                Markdown Editor - Type your notes here (supports markdown, drag & drop images)
+            </div>
+            <textarea id="editor" class="editor" placeholder="# Interview Notes
+
+## Questions Asked
+- 
+
+## Key Points
+- 
+
+## Code Examples
+```javascript
+// Your code here
+```
+
+## Ideas/Solutions
+- 
+
+## Follow-up Items
+- "></textarea>
+        </div>
+        
+        <div class="preview-panel">
+            <div class="preview-toolbar">
+                Live Preview
+            </div>
+            <div id="preview" class="preview-content"></div>
+        </div>
+    </div>
+    
+    <div class="status-bar">
+        <span id="statusText">Ready</span>
+        <span id="charCount">0 characters</span>
+    </div>
+    
+    <input type="file" id="fileInput" class="file-input" accept="*/*">
+    <input type="file" id="imageInput" class="file-input" accept="image/*">
+    
+    <div id="toast" class="toast"></div>
+    
+    <script src="notepad-renderer.js"></script>
+</body>
+</html>

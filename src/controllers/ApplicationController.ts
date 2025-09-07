@@ -55,6 +55,7 @@ export class ApplicationController {
   // UI State
   private mainWindow: BrowserWindow | null = null;
   private sessionWindows: Map<string, BrowserWindow> = new Map();
+  private notepadWindows: Map<string, BrowserWindow> = new Map();
   private settingsWindow: BrowserWindow | null = null;
   private sessions: Map<string, any> = new Map();
 
@@ -290,6 +291,91 @@ export class ApplicationController {
     this.writeLog(`✅ [APP] Session window created successfully: ${sessionId}`);
     return sessionWindow;
   }
+  
+  /**
+   * Create a new notepad window for a session
+   */
+  createNotepadWindow(sessionId: string): BrowserWindow {
+    this.writeLog(`📝 [APP] Creating notepad window for session ${sessionId}`);
+    
+    // Check if notepad window already exists for this session
+    if (this.notepadWindows.has(sessionId)) {
+      const existingWindow = this.notepadWindows.get(sessionId);
+      if (existingWindow && !existingWindow.isDestroyed()) {
+        existingWindow.show();
+        existingWindow.focus();
+        this.writeLog(`📝 [APP] Existing notepad window shown for session: ${sessionId}`);
+        return existingWindow;
+      } else {
+        // Clean up destroyed window reference
+        this.notepadWindows.delete(sessionId);
+      }
+    }
+    
+    const notepadWindow = new BrowserWindow({
+      width: 800,
+      height: 600,
+      minWidth: 600,
+      minHeight: 400,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+        backgroundThrottling: false,
+        offscreen: false
+      },
+      title: `📝 Notepad - ${sessionId}`,
+      resizable: true,
+      alwaysOnTop: false,
+      skipTaskbar: false,
+      show: true,
+      frame: true,
+      transparent: false,
+      hasShadow: true,
+      focusable: true,
+      minimizable: true,
+      maximizable: true,
+      closable: true,
+      movable: true,
+      hiddenInMissionControl: false,
+      fullscreenable: true,
+      titleBarStyle: 'default',
+      acceptFirstMouse: true
+    });
+    
+    // Load notepad window content
+    this.loadNotepadWindowContent(notepadWindow, sessionId);
+    
+    // Set up window event handlers
+    this.setupNotepadWindowEvents(notepadWindow, sessionId);
+    
+    // Apply content protection for stealth mode
+    if (this.config.stealthMode) {
+      notepadWindow.setContentProtection(true);
+      if (process.platform === 'darwin' && (notepadWindow as any).setSharingType) {
+        (notepadWindow as any).setSharingType('none');
+      }
+    }
+    
+    // Store notepad window
+    this.notepadWindows.set(sessionId, notepadWindow);
+    
+    // Ensure proper window focus and visibility
+    setTimeout(() => {
+      try {
+        if (!notepadWindow.isDestroyed()) {
+          notepadWindow.show();
+          notepadWindow.focus();
+          notepadWindow.moveTop();
+          this.writeLog(`📝 [APP] Notepad window focused and moved to top: ${sessionId}`);
+        }
+      } catch (error) {
+        this.writeLog(`⚠️ [APP] Failed to focus notepad window ${sessionId}: ${(error as Error).message}`);
+      }
+    }, 100);
+    
+    this.writeLog(`✅ [APP] Notepad window created successfully: ${sessionId}`);
+    return notepadWindow;
+  }
 
   /**
    * Get service instances (for external access)
@@ -499,7 +585,10 @@ export class ApplicationController {
       this.getServices(),
       this.sessionWindows,
       this.sessions,
-      (sessionId: string, config: any) => this.createSessionWindow(sessionId, config)
+      (sessionId: string, config: any) => this.createSessionWindow(sessionId, config),
+      (sessionId: string) => this.createNotepadWindow(sessionId),
+      (sessionId: string) => this.toggleSingleNotepadWindow(sessionId),
+      (sessionId: string) => this.hideSingleNotepadWindow(sessionId)
     );
 
     this.ipcController.initialize();
@@ -572,6 +661,10 @@ export class ApplicationController {
       windows.push({ window, name: `session-${sessionId}` });
     });
     
+    this.notepadWindows.forEach((window, sessionId) => {
+      windows.push({ window, name: `notepad-${sessionId}` });
+    });
+    
     let successCount = 0;
     let errorCount = 0;
     
@@ -618,9 +711,14 @@ export class ApplicationController {
       this.hideAllSessionWindows();
     });
 
-    globalShortcut.register('CommandOrControl+S', () => {
-      this.writeLog('⌨️ [APP] Cmd+S pressed - sending auto recorder transcription');
+    globalShortcut.register('CommandOrControl+L', () => {
+      this.writeLog('⌨️ [APP] Cmd+L pressed - sending auto recorder transcription');
       this.handleAutoRecorderSend();
+    });
+    
+    globalShortcut.register('CommandOrControl+J', () => {
+      this.writeLog('⌨️ [APP] Cmd+J pressed - toggling notepad windows');
+      this.toggleNotepadWindows();
     });
 
     // Cmd+Q → Global screenshot analysis (override default quit)
@@ -660,22 +758,47 @@ export class ApplicationController {
   }
 
   private hideAllSessionWindows(): void {
-    this.writeLog(`🪟 [APP] Toggling ${this.sessionWindows.size} session windows`);
+    this.writeLog(`🏠 [APP] Toggling ${this.sessionWindows.size} session windows`);
 
     this.sessionWindows.forEach((window, sessionId) => {
       if (window.isVisible()) {
-        this.writeLog(`🪟 [APP] Hiding session window: ${sessionId}`);
+        this.writeLog(`🏠 [APP] Hiding session window: ${sessionId}`);
         window.hide();
       } else {
-        this.writeLog(`🪟 [APP] Showing session window: ${sessionId}`);
+        this.writeLog(`🏠 [APP] Showing session window: ${sessionId}`);
         window.show();
         window.focus();
       }
     });
   }
+  
+  private toggleNotepadWindows(): void {
+    this.writeLog(`📝 [APP] Toggling ${this.notepadWindows.size} notepad windows`);
+    
+    if (this.notepadWindows.size === 0) {
+      this.writeLog(`⚠️ [APP] No notepad windows found`);
+      return;
+    }
+
+    this.notepadWindows.forEach((window, sessionId) => {
+      if (!window.isDestroyed()) {
+        if (window.isVisible()) {
+          this.writeLog(`📝 [APP] Hiding notepad window: ${sessionId}`);
+          window.hide();
+        } else {
+          this.writeLog(`📝 [APP] Showing notepad window: ${sessionId}`);
+          window.show();
+          window.focus();
+        }
+      } else {
+        // Clean up destroyed window reference
+        this.notepadWindows.delete(sessionId);
+      }
+    });
+  }
 
   /**
-   * Handle Cmd+S pressed - send auto recorder transcription to LLM
+   * Handle Cmd+L pressed - send auto recorder transcription to LLM
    * Now waits for any pending transcription to complete before processing
    */
 
@@ -907,6 +1030,34 @@ export class ApplicationController {
       }
     }
   }
+  
+  private toggleSingleNotepadWindow(sessionId: string): void {
+    const window = this.notepadWindows.get(sessionId);
+    
+    if (window && !window.isDestroyed()) {
+      if (window.isVisible()) {
+        this.writeLog(`📝 [APP] Hiding notepad window: ${sessionId}`);
+        window.hide();
+      } else {
+        this.writeLog(`📝 [APP] Showing notepad window: ${sessionId}`);
+        window.show();
+        window.focus();
+      }
+    } else {
+      this.writeLog(`⚠️ [APP] Notepad window not found for session: ${sessionId}`);
+    }
+  }
+  
+  private hideSingleNotepadWindow(sessionId: string): void {
+    const window = this.notepadWindows.get(sessionId);
+    
+    if (window && !window.isDestroyed()) {
+      this.writeLog(`📝 [APP] Hiding notepad window: ${sessionId}`);
+      window.hide();
+    } else {
+      this.writeLog(`⚠️ [APP] Notepad window not found for session: ${sessionId}`);
+    }
+  }
 
   private setupApplicationEvents(): void {
     // Request single instance lock to prevent multiple app instances
@@ -981,7 +1132,7 @@ export class ApplicationController {
 
   private setupSessionWindowEvents(window: BrowserWindow, sessionId: string): void {
     window.on('closed', async () => {
-      this.writeLog(`🪟 [APP] Session window closed: ${sessionId}`);
+      this.writeLog(`🏠 [APP] Session window closed: ${sessionId}`);
       
       // Clean up local RAG database for this session
       try {
@@ -993,6 +1144,21 @@ export class ApplicationController {
       
       this.sessionWindows.delete(sessionId);
       this.sessions.delete(sessionId);
+    });
+  }
+  
+  private setupNotepadWindowEvents(window: BrowserWindow, sessionId: string): void {
+    window.on('closed', () => {
+      this.writeLog(`📝 [APP] Notepad window closed: ${sessionId}`);
+      this.notepadWindows.delete(sessionId);
+    });
+    
+    window.on('hide', () => {
+      this.writeLog(`📝 [APP] Notepad window hidden: ${sessionId}`);
+    });
+    
+    window.on('show', () => {
+      this.writeLog(`📝 [APP] Notepad window shown: ${sessionId}`);
     });
   }
 
@@ -1131,6 +1297,17 @@ export class ApplicationController {
             background: #6c757d;
             color: white;
           }
+          
+          /* Prevent cursor changes during window resize */
+          * {
+            cursor: default !important;
+          }
+          button {
+            cursor: pointer !important;
+          }
+          input, textarea, select {
+            cursor: text !important;
+          }
         </style>
       </head>
       <body>
@@ -1157,6 +1334,7 @@ export class ApplicationController {
           
           <button onclick="showContextModal()">🚀 Start Session</button>
           <button onclick="openSettings()">⚙️ Settings</button>
+          <button onclick="closeApp()" style="background: #ff4444; color: white; margin-top: 10px;">❌ Close App</button>
           
           <div class="hotkeys">
             Cmd+G: Toggle Window<br>
@@ -1195,6 +1373,12 @@ export class ApplicationController {
           
           function openSettings() {
             ipcRenderer.send('open-settings');
+          }
+          
+          function closeApp() {
+            if (confirm('Are you sure you want to close the Interview Assistant?')) {
+              ipcRenderer.send('close-app');
+            }
           }
           
           function showContextModal() {
@@ -1261,6 +1445,38 @@ export class ApplicationController {
     `;
 
     this.mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  }
+  
+  private loadNotepadWindowContent(window: BrowserWindow, sessionId: string): void {
+    // Load the external notepad.html file with the session ID passed as URL parameter
+    const notepadHtmlPath = path.join(__dirname, '..', 'renderer', 'notepad.html');
+    
+    this.writeLog(`📝 [APP] Loading notepad window content for ${sessionId}`);
+    
+    // Set session variables via URL parameters
+    const notepadUrl = new URL(`file://${notepadHtmlPath}`);
+    notepadUrl.searchParams.set('sessionId', sessionId);
+    
+    // Load the notepad.html file with parameters
+    window.loadURL(notepadUrl.toString());
+    
+    // Set session ID after DOM is ready as backup
+    window.webContents.once('dom-ready', () => {
+      this.writeLog(`📝 [APP] DOM ready for notepad session ${sessionId}, setting backup variables`);
+      
+      window.webContents.executeJavaScript(`
+        try {
+          if (!window.GHOST_GUIDE_SESSION_ID) {
+            window.GHOST_GUIDE_SESSION_ID = '${sessionId}';
+            console.log('📝 [NOTEPAD] Session variables set as backup after DOM ready:', '${sessionId}');
+          }
+        } catch (error) {
+          console.error('📝 [NOTEPAD] Failed to set session variables:', error);
+        }
+      `).catch((error) => {
+        this.writeLog(`⚠️ [APP] Failed to set notepad session variables as backup: ${error.message}`);
+      });
+    });
   }
 
   private loadSessionWindowContent(window: BrowserWindow, sessionId: string, config: any): void {

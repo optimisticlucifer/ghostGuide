@@ -73,6 +73,7 @@ class SessionWindowRenderer {
     this.recordInterviewerBtn = document.getElementById('recordInterviewer');
     this.recordIntervieweeBtn = document.getElementById('recordInterviewee');
     this.autoRecorderBtn = document.getElementById('autoRecorderMode');
+    this.notepadBtn = document.getElementById('notepad');
     this.addRAGBtn = document.getElementById('addRAG');
     this.closeBtn = document.getElementById('close');
     
@@ -103,6 +104,7 @@ class SessionWindowRenderer {
     this.recordInterviewerBtn.addEventListener('click', () => this.toggleRecording('system')); // Use system audio for interviewer
     this.recordIntervieweeBtn.addEventListener('click', () => this.toggleRecording('interviewee'));
     this.autoRecorderBtn.addEventListener('click', () => this.toggleAutoRecorder());
+    this.notepadBtn.addEventListener('click', () => this.openNotepad());
     this.addRAGBtn.addEventListener('click', () => this.openFolderSelection());
     this.closeBtn.addEventListener('click', () => this.closeSession());
     
@@ -513,6 +515,22 @@ class SessionWindowRenderer {
       this.autoRecorderBtn.classList.add('inactive');
       this.autoRecorderBtn.classList.remove('active');
     }
+  }
+  
+  /**
+   * Open notepad window
+   */
+  openNotepad() {
+    console.log('📝 [NOTEPAD] Opening notepad window for session:', this.sessionId);
+    
+    // Send IPC message to main process to create notepad window
+    ipcRenderer.send('open-notepad', {
+      sessionId: this.sessionId
+    });
+    
+    this.addMessage('assistant', '📝 **Notepad opened** - A new notepad window is now available for taking notes during your interview.', {
+      action: 'notepad'
+    });
   }
 
   closeSession() {

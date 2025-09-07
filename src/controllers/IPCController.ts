@@ -1,4 +1,4 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron';
+import { ipcMain, dialog, BrowserWindow, app } from 'electron';
 import OpenAI from 'openai';
 import { GlobalRAGService } from '../services/GlobalRAGService';
 import { LocalRAGService } from '../services/LocalRAGService';
@@ -36,6 +36,9 @@ export class IPCController {
   private sessionWindows: Map<string, BrowserWindow>;
   private sessions: Map<string, any>;
   private createSessionWindowCallback?: (sessionId: string, config: any) => BrowserWindow;
+  private createNotepadWindowCallback?: (sessionId: string) => BrowserWindow;
+  private toggleNotepadWindowCallback?: (sessionId: string) => void;
+  private hideNotepadWindowCallback?: (sessionId: string) => void;
   
   // Mouse capture state
   private mouseCaptureSessions: Map<string, {
@@ -48,12 +51,18 @@ export class IPCController {
     services: IPCServices,
     sessionWindows: Map<string, BrowserWindow>,
     sessions: Map<string, any>,
-    createSessionWindowCallback?: (sessionId: string, config: any) => BrowserWindow
+    createSessionWindowCallback?: (sessionId: string, config: any) => BrowserWindow,
+    createNotepadWindowCallback?: (sessionId: string) => BrowserWindow,
+    toggleNotepadWindowCallback?: (sessionId: string) => void,
+    hideNotepadWindowCallback?: (sessionId: string) => void
   ) {
     this.services = services;
     this.sessionWindows = sessionWindows;
     this.sessions = sessions;
     this.createSessionWindowCallback = createSessionWindowCallback;
+    this.createNotepadWindowCallback = createNotepadWindowCallback;
+    this.toggleNotepadWindowCallback = toggleNotepadWindowCallback;
+    this.hideNotepadWindowCallback = hideNotepadWindowCallback;
   }
 
   /**
@@ -130,6 +139,45 @@ export class IPCController {
       } catch (error) {
         console.error(`🔴 [IPC] Error closing session ${sessionId}:`, error);
         event.reply('session-close-failed', { sessionId, error: (error as Error).message });
+      }
+    });
+    
+    // Handle app close request from main window
+    ipcMain.on('close-app', () => {
+      console.log('❌ [IPC] App close requested from main window');
+      app.quit();
+    });
+    
+    // Handle notepad window request
+    ipcMain.on('open-notepad', (event, data) => {
+      console.log('📝 [IPC] Notepad window requested for session:', data.sessionId);
+      
+      // Create notepad window callback (will be implemented in ApplicationController)
+      if (this.createNotepadWindowCallback) {
+        this.createNotepadWindowCallback(data.sessionId);
+      } else {
+        console.warn('⚠️ [IPC] No createNotepadWindow callback provided');
+      }
+    });
+    
+    // Handle user data path request
+    ipcMain.on('get-user-data-path', (event) => {
+      event.returnValue = app.getPath('userData');
+    });
+    
+    // Handle notepad window toggle
+    ipcMain.on('toggle-notepad-window', (event, sessionId) => {
+      console.log('📝 [IPC] Toggle notepad window requested for session:', sessionId);
+      if (this.toggleNotepadWindowCallback) {
+        this.toggleNotepadWindowCallback(sessionId);
+      }
+    });
+    
+    // Handle notepad window hide
+    ipcMain.on('hide-notepad-window', (event, sessionId) => {
+      console.log('📝 [IPC] Hide notepad window requested for session:', sessionId);
+      if (this.hideNotepadWindowCallback) {
+        this.hideNotepadWindowCallback(sessionId);
       }
     });
   }

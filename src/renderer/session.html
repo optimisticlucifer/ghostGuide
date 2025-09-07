@@ -20,6 +20,15 @@
             cursor: default !important;
         }
         
+        /* Allow proper cursor for interactive elements */
+        button, .toolbar button {
+            cursor: pointer !important;
+        }
+        
+        input, textarea, select {
+            cursor: text !important;
+        }
+        
         .toolbar {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 8px;
@@ -432,7 +441,8 @@
         <button id="debug" title="Debug Code">🐛</button>
         <button id="recordInterviewer" title="Record Interviewer (System Audio)">🎤</button>
         <button id="recordInterviewee" title="Record Interviewee (Microphone)">🎙️</button>
-        <button id="autoRecorderMode" class="auto-recorder-btn inactive" title="Toggle Auto Recorder Mode (Cmd+S to send)">🔄 Auto</button>
+        <button id="autoRecorderMode" class="auto-recorder-btn inactive" title="Toggle Auto Recorder Mode (Cmd+L to send)">🔄 Auto</button>
+        <button id="notepad" title="Open Notepad">📝 Notes</button>
         <button id="addRAG" title="Add Material for RAG">📚</button>
         <button id="refreshLocalRAG" class="rag-control refresh-btn" title="Refresh Local RAG Database">🔄 Local</button>
         <button id="toggleGlobalRAG" class="rag-control rag-disabled" title="Toggle Global RAG">🌍 Global</button>
