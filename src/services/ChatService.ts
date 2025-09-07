@@ -186,11 +186,21 @@ export class ChatService {
       }
 
       // Get action-specific prompt
-      const actionPrompt = this.promptLibraryService.getActionPrompt(
+      let actionPrompt = this.promptLibraryService.getActionPrompt(
         action,
         session.profession,
         session.interviewType
       );
+
+      // 🎯 ENHANCED: Detect if OCR text contains coding questions and enhance the prompt
+      const codeKeywords = ['code', 'implement', 'write', 'create', 'build', 'develop', 'function', 'component', 'class', 'method', 'api', 'endpoint', 'route', 'database', 'query', 'algorithm', 'solution', 'program', 'script', 'application', 'website', 'app', 'button', 'form', 'login', 'authentication', 'react', 'node', 'python', 'javascript', 'typescript', 'html', 'css', 'array', 'string', 'loop', 'sorting', 'search', 'tree', 'graph', 'dynamic programming', 'recursion', 'data structure', 'leetcode', 'hackerrank', 'coding challenge', 'technical interview'];
+      const textLower = text.toLowerCase();
+      const isCodeQuestion = codeKeywords.some(keyword => textLower.includes(keyword));
+      
+      if (isCodeQuestion) {
+        console.log(`💻 [OCR] Detected coding question in OCR text, enhancing prompt...`);
+        actionPrompt += `\n\n🔧 ENHANCED CODING INSTRUCTION FOR OCR ANALYSIS:\n\nSince this appears to be a coding question or technical interview question, structure your response as follows:\n\n## Thought Process & Intuition\nProvide a detailed explanation of your thought process in bullet points:\n• Explain the problem understanding and key insights\n• Describe the approach strategy and why you chose it\n• Walk through the logic step-by-step\n• Mention any patterns or techniques being used\n• Explain decision points and trade-offs considered\n\n## Solutions\n\n### Brute Force Approach\n**Hints:** Provide 3-5 bullet points guiding toward the brute force solution\n**Intuition:** Explain the straightforward approach and why it works\n**Code:** Provide complete, runnable brute force implementation\n**Complexity:** State time and space complexity with explanation\n\n### Optimized Approach\n**Hints:** Provide 3-5 bullet points guiding toward the optimal solution\n**Intuition:** Explain the optimized approach and key optimization insights\n**Code:** Provide complete, runnable optimized implementation\n**Complexity:** State improved time and space complexity with explanation\n\n## Interview Tips\n• Best practices and common pitfalls to avoid\n• Related follow-up questions an interviewer might ask\n• How to explain your thought process during interviews`;
+      }
 
       // Create user message for OCR analysis
       const analysisRequest = `${actionPrompt}\n\nExtracted text:\n${text}`;
@@ -267,14 +277,14 @@ export class ChatService {
         transcript
       );
       
-      // 🎯 ENHANCEMENT: Detect if transcript is asking for code/implementation and enhance the request
-      const codeKeywords = ['code', 'implement', 'write', 'create', 'build', 'develop', 'function', 'component', 'class', 'method', 'api', 'endpoint', 'route', 'database', 'query', 'algorithm', 'solution', 'program', 'script', 'application', 'website', 'app', 'button', 'form', 'login', 'authentication', 'react', 'node', 'python', 'javascript', 'typescript', 'html', 'css'];
+      // 🎯 ENHANCED: Detect if transcript is asking for code/implementation and enhance the request
+      const codeKeywords = ['code', 'implement', 'write', 'create', 'build', 'develop', 'function', 'component', 'class', 'method', 'api', 'endpoint', 'route', 'database', 'query', 'algorithm', 'solution', 'program', 'script', 'application', 'website', 'app', 'button', 'form', 'login', 'authentication', 'react', 'node', 'python', 'javascript', 'typescript', 'html', 'css', 'array', 'string', 'loop', 'sorting', 'search', 'tree', 'graph', 'dynamic programming', 'recursion', 'data structure'];
       const transcriptLower = transcript.toLowerCase();
       const isCodeRequest = codeKeywords.some(keyword => transcriptLower.includes(keyword));
       
       if (isCodeRequest) {
         console.log(`💻 [TRANSCRIPT] Detected code request in transcription, enhancing prompt...`);
-        coachingRequest += `\n\n🔧 ENHANCED INSTRUCTION FOR TRANSCRIPTION:\nSince this appears to be a request for code or implementation, please provide:\n1. Complete, runnable code examples with proper structure\n2. Step-by-step explanations for interview learning\n3. Best practices and common pitfalls to mention in interviews\n4. Related follow-up questions an interviewer might ask\n5. If it's a web development request, include all necessary files (HTML, CSS, JS, package.json, etc.)\n6. Installation and running instructions when applicable`;
+        coachingRequest += `\n\n🔧 ENHANCED CODING INSTRUCTION FOR TRANSCRIPTION:\n\nSince this appears to be a coding question or implementation request, structure your response as follows:\n\n## Thought Process & Intuition\nProvide a detailed explanation of your thought process in bullet points:\n• Explain the problem understanding and key insights\n• Describe the approach strategy and why you chose it\n• Walk through the logic step-by-step\n• Mention any patterns or techniques being used\n• Explain decision points and trade-offs considered\n\n## Solutions\n\n### Brute Force Approach\n**Hints:** Provide 3-5 bullet points guiding toward the brute force solution\n**Intuition:** Explain the straightforward approach and why it works\n**Code:** Provide complete, runnable brute force implementation\n**Complexity:** State time and space complexity with explanation\n\n### Optimized Approach\n**Hints:** Provide 3-5 bullet points guiding toward the optimal solution\n**Intuition:** Explain the optimized approach and key optimization insights\n**Code:** Provide complete, runnable optimized implementation\n**Complexity:** State improved time and space complexity with explanation\n\n## Interview Tips\n• Best practices and common pitfalls to avoid\n• Related follow-up questions an interviewer might ask\n• How to explain your thought process during interviews\n\nFor web development requests, include all necessary files, installation, and running instructions.`;
       }
 
       // ✅ CRITICAL: Save the transcript as a user message to maintain context

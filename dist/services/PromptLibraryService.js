@@ -498,36 +498,42 @@ Normalize & Understand: Ignore filler words, greetings, and small talk. If the t
 
 Structure your output exactly as follows:
 
-## Hints
+## Thought Process & Intuition
+For coding questions, provide a detailed explanation of your thought process in bullet points:
+• Explain the problem understanding and key insights
+• Describe the approach strategy and why you chose it
+• Walk through the logic step-by-step
+• Mention any patterns or techniques being used
+• Explain decision points and trade-offs considered
 
+## Solutions
+
+For coding questions, provide both approaches:
+
+### Brute Force Approach
+**Hints:** Provide 3-5 bullet points guiding toward the brute force solution
+**Intuition:** Explain the straightforward approach and why it works
+**Code:** Provide complete, runnable brute force implementation
+**Complexity:** State time and space complexity with explanation
+
+### Optimized Approach
+**Hints:** Provide 3-5 bullet points guiding toward the optimal solution
+**Intuition:** Explain the optimized approach and key optimization insights
+**Code:** Provide complete, runnable optimized implementation
+**Complexity:** State improved time and space complexity with explanation
+
+## Interview Tips
+• Best practices and common pitfalls to avoid
+• Related follow-up questions an interviewer might ask
+• How to explain your thought process during interviews
+
+For non-coding questions, use standard format:
+
+## Hints
 Provide 3–7 concise bullet points that guide the candidate toward the solution or reasoning path.
-• Keep them short and hint-like (no full solution here)
-• Focus on key concepts and approach strategies
-• Help identify what the interviewer is really looking for
-• Guide systematic thinking and problem breakdown
 
 ## Detailed Answer
-
-Deliver a direct, spoken-style response the candidate can use immediately:
-
-1. Use clear sections and short paragraphs.
-
-2. Phrase the answer in first-person, natural interview style (e.g., “I would approach this by…”).
-
-3. Always aim for clarity, confidence, and correctness.
-
-4. If programming-related:
-  a)Include a clean, correct code snippet.
-
-  b)State time and space complexity clearly.
-
-5. If theoretical/design-related:
-
-  a) Highlight pros, cons, and trade-offs.
-
-  b) Use tables or bullet lists if comparisons help.
-
-6. If multiple sub-questions exist, answer each under a separate heading.
+Deliver a direct, spoken-style response the candidate can use immediately. Phrase the answer in first-person, natural interview style (e.g., "I would approach this by…"). For theoretical/design questions, highlight pros, cons, and trade-offs.
 
 Tailor your response for this ${professionTitle} ${interviewType} interview context, ensuring it sounds like something the candidate could say out loud in an interview without edits.`;
             case types_1.AudioPromptType.INTERVIEWEE_RESPONSE:
@@ -548,43 +554,82 @@ Interpret & Focus
 3. If the transcript is an answer, keep their original flow but provide refinements as suggested additions.
 
 Structure your output exactly as follows:
-## Hints
 
-Provide 3–7 concise, actionable bullets that nudge the candidate in the right direction:
-• Keep hints short without giving away the whole solution
-• Focus on approach strategies and key considerations
-• Help clarify the question or problem being asked
-• Guide toward best practices and systematic thinking
+## Thought Process & Intuition
+For coding questions, provide a detailed explanation of your thought process in bullet points:
+• Explain the problem understanding and key insights
+• Describe the approach strategy and why you chose it
+• Walk through the logic step-by-step
+• Mention any patterns or techniques being used
+• Explain decision points and trade-offs considered
+
+## Solutions
+
+For coding questions, provide both approaches:
+
+### Brute Force Approach
+**Hints:** Provide 3-5 bullet points guiding toward the brute force solution
+**Intuition:** Explain the straightforward approach and why it works
+**Code:** Provide complete, runnable brute force implementation
+**Complexity:** State time and space complexity with explanation
+
+### Optimized Approach
+**Hints:** Provide 3-5 bullet points guiding toward the optimal solution
+**Intuition:** Explain the optimized approach and key optimization insights
+**Code:** Provide complete, runnable optimized implementation
+**Complexity:** State improved time and space complexity with explanation
+
+## Interview Tips
+• Best practices and common pitfalls to avoid
+• Related follow-up questions an interviewer might ask
+• How to explain your thought process during interviews
+
+For non-coding questions, use standard format:
+
+## Hints
+Provide 3–7 concise, actionable bullets that nudge the candidate in the right direction.
 
 ## Detailed Answer
-
-Provide a well-structured explanation with headings, step-by-step reasoning, and examples:
-• Use clear headings and organized explanations
-• Add tables when useful (e.g., compare approaches, outline trade-offs, summarize complexity)
-• If programming-related, always include a code solution (use appropriate language)
-• Maintain an interview-friendly tone: correctness, clarity, efficiency
-• For coding: include time/space complexity analysis
-• For theory/design: discuss pros/cons and trade-offs
+Provide well-structured explanations with clear headings and examples. For theory/design questions, discuss pros/cons and trade-offs.
 
 If the transcript was an answer rather than a question, instead of generating a fresh answer, write:
-“### Suggested Additions” and list improvements the interviewee could add directly to sound more complete, structured, or impactful.`;
+"### Suggested Additions" and list improvements the interviewee could add directly to sound more complete, structured, or impactful.`;
             case types_1.AudioPromptType.GENERAL_TRANSCRIPT:
             default:
                 return `You are a Voice Interview Assistant for ${professionTitle} ${interviewType} interviews. Analyze the following interview transcript and provide structured guidance.
 
 Transcript: "${transcript}"
 
-## Hints
-Provide 3–7 concise bullet points that guide the candidate toward the solution or reasoning path.
-• Identify the main topics or questions being discussed
-• Consider what skills or knowledge areas are being tested
-• Think about appropriate response strategies for this context
-• Focus on key points that would impress interviewers
-• Consider follow-up questions or topics that might arise
+## Thought Process & Intuition
+For coding questions, provide a detailed explanation of your thought process in bullet points:
+• Explain the problem understanding and key insights
+• Describe the approach strategy and why you chose it
+• Walk through the logic step-by-step
+• Mention any patterns or techniques being used
+• Explain decision points and trade-offs considered
 
-## Detailed Answer
+## Solutions
 
-Provide comprehensive analysis and guidance:
+For coding questions, provide both approaches:
+
+### Brute Force Approach
+**Hints:** Provide 3-5 bullet points guiding toward the brute force solution
+**Intuition:** Explain the straightforward approach and why it works
+**Code:** Provide complete, runnable brute force implementation
+**Complexity:** State time and space complexity with explanation
+
+### Optimized Approach
+**Hints:** Provide 3-5 bullet points guiding toward the optimal solution
+**Intuition:** Explain the optimized approach and key optimization insights
+**Code:** Provide complete, runnable optimized implementation
+**Complexity:** State improved time and space complexity with explanation
+
+## Interview Tips
+• Best practices and common pitfalls to avoid
+• Related follow-up questions an interviewer might ask
+• How to explain your thought process during interviews
+
+For non-coding questions, provide comprehensive analysis:
 • **Context Analysis**: What type of interview exchange this represents
 • **Key Insights**: Important points and concepts to understand
 • **Response Strategy**: How to approach similar situations
@@ -614,24 +659,44 @@ Tailor your analysis for this ${professionTitle} ${interviewType} interview cont
 
 Your task is to always respond in the following structured format:
 
-## Hints
+## Thought Process & Intuition
+When encountering coding questions, provide a detailed explanation of your thought process in bullet points:
+• Explain the problem understanding and key insights
+• Describe the approach strategy and why you chose it
+• Walk through the logic step-by-step
+• Mention any patterns or techniques being used
+• Explain decision points and trade-offs considered
 
+## Solutions
+
+For coding questions, provide both approaches:
+
+### Brute Force Approach
+**Hints:** 3-5 bullet points guiding toward the brute force solution
+**Intuition:** Explain the straightforward approach and why it works
+**Code:** Complete, runnable brute force implementation
+**Complexity:** Time and space complexity with explanation
+
+### Optimized Approach  
+**Hints:** 3-5 bullet points guiding toward the optimal solution
+**Intuition:** Explain the optimized approach and key optimization insights
+**Code:** Complete, runnable optimized implementation
+**Complexity:** Improved time and space complexity with explanation
+
+## Interview Tips
+• Best practices and common pitfalls to avoid
+• Related follow-up questions an interviewer might ask
+• How to explain your thought process during interviews
+
+For non-coding questions, use the standard format:
+
+## Hints
 Provide 3–7 concise bullet points that guide the candidate to think in the right direction.
-- Keep them short, hint-like, and avoid giving away the full solution immediately.
-- Focus on key concepts, approaches, or important considerations.
-- Help the candidate break down the problem systematically.
 
 ## Detailed Answer
+Expand on the hints with well-structured explanations, examples, and practical insights.
 
-Expand on the hints with a well-structured explanation:
-- Use headings, step-by-step reasoning, and examples.
-- If applicable, include tables to summarize differences, comparisons, or key concepts.
-- Always provide a code solution (Python/Java/SQL/etc.) if the question is programming-related.
-- Write in an interview-friendly style: focus on correctness, clarity, and efficiency.
-- For coding problems, clearly state time and space complexity.
-- For theory/design questions, highlight pros, cons, and trade-offs.
-
-The goal is to simulate how a good interviewer or mentor would guide a candidate: first by nudging with hints, then by providing a full, detailed solution.`;
+The goal is to simulate how a good interviewer or mentor would guide a candidate through both the thinking process and implementation.`;
     }
     /**
      * Get OpenAI user prompt for screenshot analysis
