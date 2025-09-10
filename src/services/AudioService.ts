@@ -60,7 +60,7 @@ const AUDIO_CONFIG = {
   RECOVERY_DELAY: 2000, // 2 seconds
   RESTART_DELAY: 3000, // 3 seconds
   WHISPER_EXECUTABLE: 'whisper-cli', // name of whisper-cli binary in PATH
-  MODEL_PATH: '/Users/rohanbharti/tools/ggml-base.en.bin' // default model path
+  MODEL_PATH: path.join(os.homedir(), "tools", "ggml-base.en.bin")
 } as const;
 
 export class AudioService {
