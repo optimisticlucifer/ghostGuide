@@ -128,6 +128,7 @@ The production build includes:
    ```bash
    # Using pip
    pip install openai-whisper
+   brew install whisper-cpp
    
    # Verify installation
    whisper --help
